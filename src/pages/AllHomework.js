@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, getDocs, deleteDoc, doc, query, where } from "firebase/firestore";
+import { collection, getDocs, deleteDoc, doc, query, where, writeBatch } from "firebase/firestore";
 import { db } from "../firebase/config";
 import { BookOpen, Trash2, Calendar, List } from "lucide-react";
 import toast from "react-hot-toast";
@@ -54,9 +54,13 @@ export default function AllHomework() {
   }
 
   async function handleDelete(id) {
-    if (!window.confirm("Delete this homework?")) return;
+    if (!window.confirm("Delete this homework? All student submissions for it will also be removed.")) return;
     try {
-      await deleteDoc(doc(db, "homework", id));
+      const subSnap = await getDocs(query(collection(db, "submissions"), where("homeworkId", "==", id)));
+      const batch = writeBatch(db);
+      subSnap.docs.forEach(d => batch.delete(d.ref));
+      batch.delete(doc(db, "homework", id));
+      await batch.commit();
       toast.success("Deleted");
       fetchAll();
     } catch { toast.error("Failed"); }

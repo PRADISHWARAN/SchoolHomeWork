@@ -17,11 +17,14 @@ const DEFAULT_TIMES = {
   7: "1:45-2:30",
   8: "2:30-3:15",
 };
+const ALL_CLASSES = ["Pre-KG-A","Pre-KG-B","LKG-A","LKG-B","UKG-A","UKG-B","1st-A","1st-B","2nd-A","2nd-B","3rd-A","3rd-B","4th-A","4th-B","5th-A","5th-B","6th-A","6th-B","7th-A","7th-B","8th-A","8th-B","9th-A","9th-B","10th-A","10th-B"];
 
 export default function Timetable() {
   const { userProfile } = useAuth();
   const role = userProfile?.role;
-  const classId = userProfile?.classId;
+  // Admin picks a class; teacher/student use their own classId
+  const [adminClass, setAdminClass] = useState("LKG-A");
+  const classId = role === "admin" ? adminClass : userProfile?.classId;
 
   const [periodTimes, setPeriodTimes] = useState({ ...DEFAULT_TIMES });
   const [days, setDays] = useState({});
@@ -85,6 +88,22 @@ export default function Timetable() {
 
   return (
     <div>
+      {/* Admin class picker */}
+      {role === "admin" && (
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, fontWeight: 700, color: "#6b7280", display: "block", marginBottom: 6 }}>
+            🏫 Select Class
+          </label>
+          <select
+            value={adminClass}
+            onChange={e => setAdminClass(e.target.value)}
+            style={{ padding: "9px 14px", borderRadius: 12, border: "2px solid #e0e7ff", fontFamily: "inherit", fontSize: 14, outline: "none" }}
+          >
+            {ALL_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+      )}
+
       <div className="page-header">
         <div>
           <h1>📅 Class Timetable</h1>

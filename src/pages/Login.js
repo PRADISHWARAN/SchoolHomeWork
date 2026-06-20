@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { sendPasswordResetEmail } from "firebase/auth";
+import { auth } from "../firebase/config";
 import { Mail, Lock, Eye, EyeOff, Phone, Calendar } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -39,10 +41,24 @@ export default function Login() {
   const [email, setEmail]     = useState("");
   const [password, setPassword] = useState("");
 
-  const [showPass, setShowPass] = useState(false);
-  const [loading, setLoading]   = useState(false);
+  const [showPass, setShowPass]         = useState(false);
+  const [loading, setLoading]           = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
   const { login } = useAuth();
   const navigate  = useNavigate();
+
+  async function handleForgotPassword() {
+    if (!email.trim()) { toast.error("Please enter your email address first 📧"); return; }
+    setResetLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      toast.success("Password reset email sent! Check your inbox 📬");
+    } catch (e) {
+      if (e.code === "auth/user-not-found") toast.error("No account found with this email");
+      else toast.error("Failed to send reset email: " + e.message);
+    }
+    setResetLoading(false);
+  }
 
   const floats = useMemo(() => Array.from({ length: 20 }, (_, i) => ({
     emoji:    FLOAT_POOL[i % FLOAT_POOL.length],
@@ -333,7 +349,21 @@ export default function Login() {
                 </div>
 
                 <div className="form-group">
-                  <label>🔒 Password</label>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <label style={{ margin: 0 }}>🔒 Password</label>
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      disabled={resetLoading}
+                      style={{
+                        background: "none", border: "none", cursor: "pointer",
+                        color: "#6366f1", fontSize: 12, fontWeight: 700,
+                        fontFamily: "inherit", padding: 0,
+                      }}
+                    >
+                      {resetLoading ? "Sending…" : "Forgot Password?"}
+                    </button>
+                  </div>
                   <div style={{ position: "relative" }}>
                     <Lock size={16} style={iconStyle} />
                     <input type={showPass ? "text" : "password"}

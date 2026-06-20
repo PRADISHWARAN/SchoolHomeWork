@@ -62,6 +62,7 @@ function DriverPanel({ userProfile }) {
   }
 
   async function stopSharing() {
+    if (!window.confirm("Stop sharing your location? Students and parents will no longer see your bus on the map.")) return;
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
@@ -331,15 +332,16 @@ function ViewerMap() {
       {/* Bus info cards */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 16 }}>
         {Object.entries(BUS_CONFIG).map(([busId, cfg]) => {
-          const data   = buses[busId];
-          const active = data?.active;
-          const updated = data?.updatedAt?.seconds
-            ? new Date(data.updatedAt.seconds * 1000).toLocaleTimeString()
-            : null;
+          const data    = buses[busId];
+          const active  = data?.active;
+          const updatedSec = data?.updatedAt?.seconds || 0;
+          const updatedDate = updatedSec ? new Date(updatedSec * 1000) : null;
+          const updated = updatedDate ? updatedDate.toLocaleTimeString() : null;
+          const stale   = active && updatedSec && (Date.now() / 1000 - updatedSec) > 300; // 5 min
           return (
             <div key={busId} style={{
               background: "white", borderRadius: 16, padding: "16px 18px",
-              border: `2px solid ${active ? cfg.color + "50" : "#f3f4f6"}`,
+              border: `2px solid ${stale ? "#fde68a" : active ? cfg.color + "50" : "#f3f4f6"}`,
               boxShadow: active ? `0 4px 16px ${cfg.color}18` : "none",
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
@@ -350,11 +352,11 @@ function ViewerMap() {
                   </div>
                   <div style={{
                     fontSize: 12, fontWeight: 700,
-                    color: active ? "#16a34a" : "#9ca3af",
+                    color: stale ? "#d97706" : active ? "#16a34a" : "#9ca3af",
                     display: "flex", alignItems: "center", gap: 5,
                   }}>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: active ? "#22c55e" : "#d1d5db" }} />
-                    {active ? "On Route" : "Not Running"}
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: stale ? "#f59e0b" : active ? "#22c55e" : "#d1d5db" }} />
+                    {stale ? "Signal Lost?" : active ? "On Route" : "Not Running"}
                   </div>
                 </div>
               </div>
@@ -362,7 +364,10 @@ function ViewerMap() {
                 <div style={{ fontSize: 12, color: "#6b7280" }}>👤 {data.driverName}</div>
               )}
               {updated && (
-                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>🕐 Updated: {updated}</div>
+                <div style={{ fontSize: 11, color: stale ? "#d97706" : "#9ca3af", marginTop: 4 }}>
+                  🕐 {active ? "Last update" : "Last seen"}: {updated}
+                  {stale && " · ⚠️ No update for 5+ min"}
+                </div>
               )}
               {!active && (
                 <div style={{ fontSize: 12, color: "#9ca3af" }}>Bus is not currently running</div>

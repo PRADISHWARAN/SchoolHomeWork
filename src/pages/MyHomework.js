@@ -93,6 +93,8 @@ export default function MyHomework() {
   }
 
   function validateSubmission() {
+    // Games are self-reported — no file upload required
+    if (selectedHw?.type === "game") return true;
     if (!subForm.file && !subForm.bringPhysically) {
       toast.error("Please upload your work (photo/PDF) or tick 'I will bring it physically' 📎");
       return false;
@@ -101,6 +103,7 @@ export default function MyHomework() {
   }
 
   async function handleSubmit() {
+    if (submitting) return; // prevent double-tap
     if (!validateSubmission()) return;
     setSubmitting(true);
     try {

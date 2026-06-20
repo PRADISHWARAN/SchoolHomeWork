@@ -1,10 +1,20 @@
 import React, { useState, useEffect, useRef } from "react";
-import { collection, getDocs, deleteDoc, doc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { collection, getDocs, deleteDoc, doc, setDoc, updateDoc, serverTimestamp, query, where } from "firebase/firestore";
+import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { initializeApp, getApps } from "firebase/app";
+import { getAuth } from "firebase/auth";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
-import { auth, db, storage } from "../firebase/config";
+import { auth, db, storage, firebaseConfig } from "../firebase/config";
 import { Plus, Trash2, Users, X, Camera, Pencil } from "lucide-react";
 import toast from "react-hot-toast";
+
+/* Secondary Firebase app used ONLY for creating new accounts
+   so the admin stays logged in during user creation */
+function getSecondaryAuth() {
+  const existing = getApps().find(a => a.name === "secondary");
+  const app = existing || initializeApp(firebaseConfig, "secondary");
+  return getAuth(app);
+}
 
 const CLASSES   = ["Pre-KG-A", "Pre-KG-B", "LKG-A", "LKG-B", "UKG-A", "UKG-B", "1st-A", "1st-B", "2nd-A", "2nd-B", "3rd-A", "3rd-B", "4th-A", "4th-B", "5th-A", "5th-B", "6th-A", "6th-B", "7th-A", "7th-B", "8th-A", "8th-B", "9th-A", "9th-B", "10th-A", "10th-B"];
 const ROLES     = ["student", "teacher", "admin", "driver"];
@@ -266,7 +276,8 @@ export default function ManageUsers() {
 
     setCreating(true);
     try {
-      const cred = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+      const secondaryAuth = getSecondaryAuth();
+      const cred = await createUserWithEmailAndPassword(secondaryAuth, authEmail, authPassword);
 
       let photoURL = "";
       if (addPhotoFile) {
@@ -275,24 +286,32 @@ export default function ManageUsers() {
         photoURL = await getDownloadURL(ref);
       }
 
-      await setDoc(doc(db, "users", cred.user.uid), {
-        name:      addForm.name,
-        email:     authEmail,
-        ...(isStudent ? { phone: addForm.phone, dob: addForm.dob } : {}),
-        ...(isTeacher ? { subjects: addForm.subjects.length > 0 ? addForm.subjects : ["ALL"] } : {}),
-        role:      addForm.role,
-        classId:   addForm.role === "admin" ? "ALL" : addForm.role === "driver" ? "DRIVER" : addForm.classId,
-        gender:    addForm.gender,
-        birthday:  addForm.birthday || "",
-        photoURL,
-        uid:       cred.user.uid,
-        createdAt: new Date().toISOString(),
-        classJoinedAt: serverTimestamp(),
-      });
-
-      toast.success(`${addForm.role} account created for ${addForm.name}! 🎉`);
-      closeAddModal();
-      fetchUsers();
+      try {
+        await setDoc(doc(db, "users", cred.user.uid), {
+          name:      addForm.name,
+          email:     authEmail,
+          ...(isStudent ? { phone: addForm.phone, dob: addForm.dob } : {}),
+          ...(isTeacher ? { subjects: addForm.subjects.length > 0 ? addForm.subjects : ["ALL"] } : {}),
+          role:      addForm.role,
+          classId:   addForm.role === "admin" ? "ALL" : addForm.role === "driver" ? "DRIVER" : addForm.classId,
+          gender:    addForm.gender,
+          birthday:  addForm.birthday || "",
+          photoURL,
+          uid:       cred.user.uid,
+          createdAt: new Date().toISOString(),
+          classJoinedAt: serverTimestamp(),
+        });
+        toast.success(`${addForm.role} account created for ${addForm.name}! 🎉`);
+        closeAddModal();
+        fetchUsers();
+      } catch (firestoreErr) {
+        // Rollback: delete the Auth account so the admin can retry
+        await cred.user.delete();
+        throw firestoreErr;
+      } finally {
+        // Sign out from secondary app — does NOT affect the admin's main session
+        await signOut(secondaryAuth);
+      }
     } catch (e) {
       if (e.code === "auth/email-already-in-use") toast.error("This phone number is already registered");
       else toast.error("Failed to create user: " + e.message);
@@ -308,7 +327,7 @@ export default function ManageUsers() {
     setEditForm({
       name:     user.name     || "",
       role:     user.role     || "student",
-      classId:  user.classId  || "LKG",
+      classId:  user.classId  || "LKG-A",
       gender:   user.gender   || "Male",
       birthday: user.birthday || "",
       subjects: user.subjects || ["ALL"],
@@ -373,6 +392,9 @@ export default function ManageUsers() {
     }
   }
 
+  /* ── Search ── */
+  const [searchQuery, setSearchQuery] = useState("");
+
   /* ── Derived ── */
   const roleFiltered = filter === "all" ? users : users.filter((u) => u.role === filter);
 
@@ -381,10 +403,16 @@ export default function ManageUsers() {
     roleFiltered.some((u) => u.classId === c)
   )];
 
-  /* Apply class filter on top of role filter */
-  const filtered = roleFiltered.filter(
-    (u) => classFilter === "All" || u.classId === classFilter
-  );
+  /* Apply class filter + search on top of role filter */
+  const filtered = roleFiltered
+    .filter((u) => classFilter === "All" || u.classId === classFilter)
+    .filter((u) => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return (u.name || "").toLowerCase().includes(q) ||
+             (u.phone || "").includes(q) ||
+             (u.email || "").toLowerCase().includes(q);
+    });
 
   const counts = {
     all:     users.length,
@@ -408,6 +436,23 @@ export default function ManageUsers() {
         <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
           <Plus size={18} /> Add User
         </button>
+      </div>
+
+      {/* Search */}
+      <div style={{ marginBottom: 16 }}>
+        <input
+          type="text"
+          placeholder="🔍 Search by name, phone or email…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          style={{
+            width: "100%", padding: "11px 16px", borderRadius: 14,
+            border: "2px solid #e0e7ff", fontFamily: "'Poppins', sans-serif",
+            fontSize: 14, outline: "none", boxSizing: "border-box",
+          }}
+          onFocus={e => (e.target.style.borderColor = "#6366f1")}
+          onBlur={e  => (e.target.style.borderColor = "#e0e7ff")}
+        />
       </div>
 
       {/* Role Filter Tabs */}

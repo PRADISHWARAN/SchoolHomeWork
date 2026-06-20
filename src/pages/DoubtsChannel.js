@@ -69,11 +69,17 @@ function useRecorder() {
   async function start() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      // Detect best supported MIME type (iOS Safari needs audio/mp4)
+      const mimeType =
+        MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" :
+        MediaRecorder.isTypeSupported("audio/mp4")  ? "audio/mp4"  :
+        MediaRecorder.isTypeSupported("audio/ogg")  ? "audio/ogg"  : "";
+      const recorderOpts = mimeType ? { mimeType } : {};
+      const recorder = new MediaRecorder(stream, recorderOpts);
       chunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const blob = new Blob(chunksRef.current, { type: mimeType || "audio/webm" });
         setAudioBlob(blob);
         setAudioURL(URL.createObjectURL(blob));
         stream.getTracks().forEach(t => t.stop());
@@ -83,8 +89,12 @@ function useRecorder() {
       setRecording(true);
       setSeconds(0);
       timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000);
-    } catch {
-      toast.error("Microphone permission denied. Please allow microphone access.");
+    } catch (err) {
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        toast.error("Microphone permission denied. Please allow microphone access.");
+      } else {
+        toast.error("Could not start recording: " + err.message);
+      }
     }
   }
 
@@ -360,9 +370,12 @@ function DoubtsTab({ userProfile }) {
     }
     setReplying(true);
     try {
-      let replyAudioUrl = null;
+      // Preserve existing voice reply if teacher only edits the text (no new recording)
+      const existingDoubt = doubts.find(d => d.id === doubtId);
+      let replyAudioUrl = existingDoubt?.reply?.audioUrl || null;
       if (rec.audioBlob) {
-        const path = `doubts/replies/${doubtId}_${Date.now()}.webm`;
+        const ext = rec.audioBlob.type.includes("mp4") ? "mp4" : "webm";
+        const path = `doubts/replies/${doubtId}_${Date.now()}.${ext}`;
         const sRef = ref(storage, path);
         await uploadBytes(sRef, rec.audioBlob);
         replyAudioUrl = await getDownloadURL(sRef);
@@ -591,13 +604,20 @@ function StudentView({ userProfile }) {
   }, [userProfile?.classId]);
 
   async function submit() {
-    if (!rec.audioBlob) { toast.error("Please record your doubt first!"); return; }
+    if (!rec.audioBlob && !text.trim()) {
+      toast.error("Please record your doubt or type your question!");
+      return;
+    }
     setSubmitting(true);
     try {
-      const path = `doubts/${userProfile.uid}_${Date.now()}.webm`;
-      const sRef = ref(storage, path);
-      await uploadBytes(sRef, rec.audioBlob);
-      const audioUrl = await getDownloadURL(sRef);
+      let audioUrl = null;
+      if (rec.audioBlob) {
+        const ext = rec.audioBlob.type.includes("mp4") ? "mp4" : rec.audioBlob.type.includes("ogg") ? "ogg" : "webm";
+        const path = `doubts/${userProfile.uid}_${Date.now()}.${ext}`;
+        const sRef = ref(storage, path);
+        await uploadBytes(sRef, rec.audioBlob);
+        audioUrl = await getDownloadURL(sRef);
+      }
       await addDoc(collection(db, "doubts"), {
         studentId:   userProfile.uid,
         studentName: userProfile.name || "Student",
@@ -661,9 +681,12 @@ function StudentView({ userProfile }) {
 
       {/* ── Ask Doubt ── */}
       <div style={card}>
-        <div style={{ fontFamily: "'Fredoka One', cursive", fontSize: 20, color: "#4f46e5", marginBottom: 14 }}>
+        <div style={{ fontFamily: "'Fredoka One', cursive", fontSize: 20, color: "#4f46e5", marginBottom: 6 }}>
           🎙️ Ask Your Doubt
         </div>
+        <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 14 }}>
+          Record your voice <strong>or</strong> type your question below — either works! 🎤✍️
+        </p>
 
         {/* Step guide */}
         <StepGuide step={step} />

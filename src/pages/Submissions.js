@@ -339,6 +339,7 @@ export default function Submissions() {
             </div>
           ) : (
             <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <div className="sub-table-scroll">
               <table style={styles.table}>
                 <thead>
                   <tr style={styles.thead}>
@@ -398,6 +399,7 @@ export default function Submissions() {
                   ))}
                 </tbody>
               </table>
+            </div>
             </div>
           )}
         </>

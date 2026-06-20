@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, addDoc, query, where, getDocs, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, query, where, getDocs, deleteDoc, doc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "../firebase/config";
 import { useAuth } from "../context/AuthContext";
@@ -141,9 +141,13 @@ export default function PostHomework() {
   }
 
   async function handleDelete(id) {
-    if (!window.confirm("Delete this item?")) return;
+    if (!window.confirm("Delete this homework? All student submissions for it will also be removed.")) return;
     try {
-      await deleteDoc(doc(db, "homework", id));
+      const subSnap = await getDocs(query(collection(db, "submissions"), where("homeworkId", "==", id)));
+      const batch = writeBatch(db);
+      subSnap.docs.forEach(d => batch.delete(d.ref));
+      batch.delete(doc(db, "homework", id));
+      await batch.commit();
       toast.success("Deleted");
       fetchHomework();
     } catch { toast.error("Failed to delete"); }

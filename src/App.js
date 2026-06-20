@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
-import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
 import { db } from "./firebase/config";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
@@ -56,14 +56,12 @@ function AppLayout({ children }) {
   const holiday = getHoliday();
 
   useEffect(() => {
-    (async () => {
-      try {
-        const snap = await getDocs(
-          query(collection(db, "announcements"), orderBy("createdAt", "desc"), limit(6))
-        );
-        setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch { /* announcements collection may not exist yet */ }
-    })();
+    const q = query(collection(db, "announcements"), orderBy("createdAt", "desc"), limit(6));
+    const unsub = onSnapshot(q,
+      snap => setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      () => { /* announcements collection may not exist yet */ }
+    );
+    return unsub;
   }, []);
 
   return (
@@ -156,7 +154,7 @@ function AppRoutes() {
         <ProtectedRoute allowedRoles={["student"]}><AppLayout><MyHomework /></AppLayout></ProtectedRoute>
       } />
       <Route path="/timetable" element={
-        <ProtectedRoute allowedRoles={["teacher","student"]}><AppLayout><Timetable /></AppLayout></ProtectedRoute>
+        <ProtectedRoute allowedRoles={["teacher","student","admin"]}><AppLayout><Timetable /></AppLayout></ProtectedRoute>
       } />
       <Route path="/calendar" element={
         <ProtectedRoute><AppLayout><AcademicCalendar /></AppLayout></ProtectedRoute>

@@ -10,13 +10,6 @@ import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
 
-/* ── Week number ─────────────────────────────────────── */
-function getWeekNumber() {
-  const d    = new Date();
-  const jan1 = new Date(d.getFullYear(), 0, 1);
-  return Math.ceil((((d - jan1) / 86400000) + jan1.getDay() + 1) / 7);
-}
-
 /* ── Moods ───────────────────────────────────────────── */
 const MOODS = [
   { emoji: "😴", label: "Sleepy" },
@@ -106,7 +99,9 @@ export default function Dashboard() {
         const students  = usersSnap.docs.filter(d => d.data().role === "student").length;
         const teachers  = usersSnap.docs.filter(d => d.data().role === "teacher").length;
         setStats({ students, teachers, totalHw: hwSnap.size });
-        setRecentHomework(hwSnap.docs.slice(0, 5).map(d => ({ id: d.id, ...d.data() })));
+        const allHw = hwSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        allHw.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        setRecentHomework(allHw.slice(0, 5));
 
       } else if (role === "teacher") {
         /* ── teacher subject scope ── */
@@ -185,7 +180,7 @@ export default function Dashboard() {
         setStats({ total: hw.length, submitted, pending: pending.length });
         setRecentHomework(hw.slice(0, 5).map(h => ({ ...h, submitted: submittedIds.has(h.id) })));
       }
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); toast.error("Failed to load dashboard data"); }
     setLoading(false);
   }
 
@@ -609,6 +604,7 @@ export default function Dashboard() {
                 hw={hw}
                 role={role}
                 onTap={() => navigate(role === "teacher" ? "/submissions" : "/my-homework")}
+                subInfo={hw.subInfo || null}
               />
             ))
           )}
