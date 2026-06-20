@@ -156,7 +156,8 @@ export default function MyHomework() {
   const pendingHw     = regularHw.filter(hw => !submissions[hw.id]);
   const doneHw        = regularHw.filter(hw =>  submissions[hw.id]);
 
-  const totalDone  = Object.keys(submissions).length;
+  const validHwIds = new Set(homeworkList.map(h => h.id));
+  const totalDone  = Object.keys(submissions).filter(id => validHwIds.has(id)).length;
   const totalAll   = homeworkList.length;
 
   return (
