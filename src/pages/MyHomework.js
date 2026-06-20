@@ -571,7 +571,7 @@ function HomeworkCard({ hw, status, onSubmit, submission }) {
           </div>
 
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-            {hw.dueDate && <DaysLeft dueDate={hw.dueDate} dueTime={hw.dueTime} />}
+            {hw.dueDate && isPending && <DaysLeft dueDate={hw.dueDate} dueTime={hw.dueTime} />}
             {hw.createdAt?.seconds && (
               <span style={{ fontSize: 12, color: "#9ca3af" }}>
                 📌 Posted: {new Date(hw.createdAt.seconds * 1000).toLocaleDateString()}
