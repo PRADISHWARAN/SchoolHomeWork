@@ -92,11 +92,16 @@ export default function MyHomework() {
     setSelectedHw(hw);
   }
 
-  async function handleSubmit() {
-    if (!subForm.note && !subForm.file && !subForm.bringPhysically) {
-      toast.error("Please add a note, file, or select 'Bring Physically'");
-      return;
+  function validateSubmission() {
+    if (!subForm.file && !subForm.bringPhysically) {
+      toast.error("Please upload your work (photo/PDF) or tick 'I will bring it physically' 📎");
+      return false;
     }
+    return true;
+  }
+
+  async function handleSubmit() {
+    if (!validateSubmission()) return;
     setSubmitting(true);
     try {
       let fileUrl = null, fileName = null;
@@ -410,7 +415,7 @@ export default function MyHomework() {
                 Cancel
               </button>
               {!showSubmitConfirm && (
-                <button className="btn btn-primary" onClick={() => setShowSubmitConfirm(true)}
+                <button className="btn btn-primary" onClick={() => { if (validateSubmission()) setShowSubmitConfirm(true); }}
                   style={{
                     flex: 2, justifyContent: "center", fontSize: 15,
                     background: selectedHw.type === "game"
