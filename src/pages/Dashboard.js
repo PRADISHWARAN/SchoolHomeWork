@@ -170,10 +170,10 @@ export default function Dashboard() {
         const hw      = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         const subQ    = query(collection(db, "submissions"), where("studentId", "==", userProfile.uid || ""));
         const subSnap = await getDocs(subQ);
-        const submittedIds = subSnap.docs.map(d => d.data().homeworkId);
-        const pending = hw.filter(h => !submittedIds.includes(h.id));
+        const submittedIds = new Set(subSnap.docs.map(d => d.data().homeworkId));
+        const pending = hw.filter(h => !submittedIds.has(h.id));
         setStats({ total: hw.length, submitted: subSnap.size, pending: pending.length });
-        setRecentHomework(hw.slice(0, 5));
+        setRecentHomework(hw.slice(0, 5).map(h => ({ ...h, submitted: submittedIds.has(h.id) })));
       }
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -619,11 +619,19 @@ function StatCard({ emoji, bg, color, label, value, onClick }) {
 }
 
 function HomeworkRow({ hw }) {
-  const dueDate  = hw.dueDate
+  const dueDate    = hw.dueDate
     ? new Date(hw.dueDate + (hw.dueTime ? `T${hw.dueTime}` : "T23:59"))
     : null;
-  const isOverdue = dueDate && dueDate < new Date();
-  const isGame    = hw.type === "game";
+  const isOverdue  = dueDate && dueDate < new Date();
+  const isGame     = hw.type === "game";
+  const isSubmitted = !!hw.submitted;
+
+  let badgeClass = "badge-blue";
+  let badgeLabel = isGame ? "🎮 Game" : "Active";
+  if (isSubmitted)      { badgeClass = "badge-green"; badgeLabel = "✅ Submitted"; }
+  else if (isOverdue)   { badgeClass = "badge-red";   badgeLabel = "Overdue"; }
+  else if (isGame)      { badgeClass = "badge-game";  }
+
   return (
     <div style={{
       display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -631,8 +639,11 @@ function HomeworkRow({ hw }) {
     }}>
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 20 }}>{isGame ? "🎮" : "📝"}</span>
-          <div style={{ fontWeight: 800, fontSize: 15, fontFamily: "'Fredoka One', cursive" }}>{hw.title}</div>
+          <span style={{ fontSize: 20 }}>{isGame ? "🎮" : isSubmitted ? "✅" : "📝"}</span>
+          <div style={{
+            fontWeight: 800, fontSize: 15, fontFamily: "'Fredoka One', cursive",
+            color: isSubmitted ? "#059669" : "inherit",
+          }}>{hw.title}</div>
         </div>
         <div style={{ color: "#6b7280", fontSize: 13, marginTop: 2 }}>
           {hw.subject} · Class {hw.classId}
@@ -640,13 +651,11 @@ function HomeworkRow({ hw }) {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {dueDate && (
-          <span style={{ fontSize: 12, color: isOverdue ? "#ef4444" : "#6b7280" }}>
+          <span style={{ fontSize: 12, color: isSubmitted ? "#10b981" : isOverdue ? "#ef4444" : "#6b7280" }}>
             📅 {dueDate.toLocaleDateString()}{hw.dueTime && ` · ⏰ ${new Date(`2000-01-01T${hw.dueTime}`).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
           </span>
         )}
-        <span className={`badge ${isOverdue ? "badge-red" : isGame ? "badge-game" : "badge-blue"}`}>
-          {isOverdue ? "Overdue" : isGame ? "🎮 Game" : "Active"}
-        </span>
+        <span className={`badge ${badgeClass}`}>{badgeLabel}</span>
       </div>
     </div>
   );
