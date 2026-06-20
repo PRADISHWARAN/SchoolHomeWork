@@ -36,6 +36,59 @@ const driverLinks = [
   { emoji: "🚌", label: "Bus Tracker",        path: "/bus-tracker",  color: "#1d4ed8" },
 ];
 
+/* ── Bottom nav links (mobile, max 5) ─────────────────────── */
+const studentBottomLinks = [
+  { emoji: "🏠", label: "Home",      path: "/dashboard"   },
+  { emoji: "📚", label: "Homework",  path: "/my-homework" },
+  { emoji: "🎙️", label: "Doubts",    path: "/doubts"      },
+  { emoji: "📅", label: "Timetable", path: "/timetable"   },
+  { emoji: "🚌", label: "Bus",       path: "/bus-tracker" },
+];
+const teacherBottomLinks = [
+  { emoji: "🏠", label: "Home",     path: "/dashboard"    },
+  { emoji: "✏️", label: "Post",     path: "/post-homework"},
+  { emoji: "📋", label: "Submits",  path: "/submissions"  },
+  { emoji: "🎙️", label: "Doubts",   path: "/doubts"       },
+  { emoji: "🗓️", label: "Attend",   path: "/attendance"   },
+];
+const adminBottomLinks = [
+  { emoji: "🏠", label: "Home",     path: "/dashboard"    },
+  { emoji: "👥", label: "Users",    path: "/manage-users" },
+  { emoji: "📖", label: "Homework", path: "/all-homework" },
+  { emoji: "🎙️", label: "Doubts",   path: "/doubts"       },
+  { emoji: "🗓️", label: "Attend",   path: "/attendance"   },
+];
+
+function BottomNav({ role, location, navigate }) {
+  const links =
+    role === "student" ? studentBottomLinks :
+    role === "teacher" ? teacherBottomLinks :
+    role === "admin"   ? adminBottomLinks   : [];
+
+  if (!links.length) return null;
+
+  return (
+    <div className="bottom-nav">
+      <div className="bottom-nav-inner">
+        {links.map(link => {
+          const active = location.pathname === link.path;
+          return (
+            <button
+              key={link.path}
+              className={`bottom-nav-btn${active ? " active" : ""}`}
+              onClick={() => navigate(link.path)}
+            >
+              <div className="bottom-nav-indicator" />
+              <span className="bottom-nav-icon">{link.emoji}</span>
+              <span className="bottom-nav-label">{link.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function Sidebar() {
   const { userProfile, profileLoading, logout } = useAuth();
   const { themeId, setThemeId, themeConfig } = useTheme();
@@ -195,6 +248,8 @@ export default function Sidebar() {
           </div>
         </div>
       )}
+
+      <BottomNav role={role} location={location} navigate={navigate} />
     </>
   );
 }

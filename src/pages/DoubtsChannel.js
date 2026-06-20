@@ -104,7 +104,60 @@ function useRecorder() {
   return { recording, audioBlob, audioURL, seconds, start, stop, reset };
 }
 
-/* ── recording UI helper ─────────────────────────────────── */
+/* ── skeleton card ───────────────────────────────────────── */
+function SkeletonCard() {
+  return (
+    <div className="skeleton-card">
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
+        <div className="skeleton-line" style={{ width: 80, height: 22 }} />
+        <div className="skeleton-line" style={{ width: 60, height: 16 }} />
+      </div>
+      <div className="skeleton-line" style={{ width: "100%", height: 40, marginBottom: 10 }} />
+      <div className="skeleton-line" style={{ width: "70%", height: 16 }} />
+    </div>
+  );
+}
+
+/* ── success overlay ─────────────────────────────────────── */
+function SuccessOverlay({ message = "Doubt Sent!" }) {
+  return (
+    <div className="success-overlay">
+      <div className="success-checkmark">✅</div>
+      <div className="success-text">{message}</div>
+    </div>
+  );
+}
+
+/* ── sound wave (shown while recording) ─────────────────── */
+function SoundWave() {
+  return (
+    <div className="sound-wave">
+      {[1,2,3,4,5].map(i => <div key={i} className="sound-bar" />)}
+    </div>
+  );
+}
+
+/* ── step guide ──────────────────────────────────────────── */
+function StepGuide({ step }) {
+  const steps = [
+    { n: 1, icon: "🎙️", label: "Press Record" },
+    { n: 2, icon: "🗣️", label: "Speak Doubt"  },
+    { n: 3, icon: "⏹️", label: "Press Stop"   },
+    { n: 4, icon: "📨", label: "Send"          },
+  ];
+  return (
+    <div className="voice-steps">
+      {steps.map(s => (
+        <div key={s.n} className={`voice-step${step === s.n ? " active" : step > s.n ? " done" : ""}`}>
+          <span className="voice-step-num">{step > s.n ? "✓" : s.n}</span>
+          {s.icon} {s.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── recording UI helper (compact — for teacher reply) ────── */
 function RecorderUI({ rec, size = "normal" }) {
   const fmt = s => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
   const p = size === "small" ? { fontSize: 12, padding: "6px 14px" } : {};
@@ -117,8 +170,8 @@ function RecorderUI({ rec, size = "normal" }) {
           background: "#fee2e2", borderRadius: 10, padding: "8px 14px",
           color: "#dc2626", fontWeight: 700, fontSize: 13, marginBottom: 8,
         }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#ef4444", animation: "pulse 1s infinite" }} />
-          Recording… {fmt(rec.seconds)}
+          <SoundWave />
+          <span style={{ marginLeft: 4 }}>Recording… {fmt(rec.seconds)}</span>
         </div>
       )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -280,20 +333,22 @@ function AnnounceTab({ userProfile }) {
    TEACHER — DOUBTS TAB
 ═══════════════════════════════════════════════════════════ */
 function DoubtsTab({ userProfile }) {
-  const [doubts, setDoubts]       = useState([]);
-  const [activeId, setActiveId]   = useState(null);
-  const [replyText, setReplyText] = useState("");
-  const [filter, setFilter]       = useState("pending");
-  const rec                       = useRecorder();
-  const [replying, setReplying]   = useState(false);
+  const [doubts, setDoubts]         = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [activeId, setActiveId]     = useState(null);
+  const [replyText, setReplyText]   = useState("");
+  const [filter, setFilter]         = useState("pending");
+  const rec                         = useRecorder();
+  const [replying, setReplying]     = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
     if (!userProfile?.classId) return;
     const q = query(collection(db, "doubts"), where("classId", "==", userProfile.classId));
-    return onSnapshot(q,
-      snap => setDoubts(sortDesc(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
-      err => toast.error("Could not load doubts: " + err.message)
-    );
+    return onSnapshot(q, snap => {
+      setDoubts(sortDesc(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+      setLoading(false);
+    }, err => { toast.error("Could not load doubts: " + err.message); setLoading(false); });
   }, [userProfile?.classId]);
 
   function openReply(id) { setActiveId(id); setReplyText(""); rec.reset(); }
@@ -321,8 +376,9 @@ function DoubtsTab({ userProfile }) {
           teacherName: userProfile.name || "Teacher",
         },
       });
-      toast.success("Reply sent!");
       setActiveId(null); rec.reset(); setReplyText("");
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 2200);
     } catch (e) {
       toast.error("Failed to send reply: " + e.message);
     } finally {
@@ -335,6 +391,8 @@ function DoubtsTab({ userProfile }) {
 
   return (
     <div>
+      {showSuccess && <SuccessOverlay message="Reply Sent! ✅" />}
+
       {/* Stats */}
       <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
         {[
@@ -363,9 +421,18 @@ function DoubtsTab({ userProfile }) {
         ))}
       </div>
 
-      {visible.length === 0 && (
-        <div style={emptyBox}>
-          {filter === "pending" ? "No pending doubts — all caught up! 🎉" : "No doubts yet in this class."}
+      {/* skeleton while loading */}
+      {loading && <><SkeletonCard /><SkeletonCard /><SkeletonCard /></>}
+
+      {!loading && visible.length === 0 && (
+        <div className="doubts-empty">
+          <span className="doubts-empty-emoji">{filter === "pending" ? "🎉" : "📭"}</span>
+          <div className="doubts-empty-title">
+            {filter === "pending" ? "All caught up!" : "No doubts yet"}
+          </div>
+          <div className="doubts-empty-sub">
+            {filter === "pending" ? "No pending doubts from students." : "Students haven't posted any doubts yet."}
+          </div>
         </div>
       )}
 
@@ -496,19 +563,21 @@ function TeacherView({ userProfile }) {
 ═══════════════════════════════════════════════════════════ */
 function StudentView({ userProfile }) {
   const rec       = useRecorder();
-  const [text, setText]           = useState("");
+  const [text, setText]             = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [myDoubts, setMyDoubts]   = useState([]);
-  const [announcements, setAnn]   = useState([]);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [myDoubts, setMyDoubts]     = useState([]);
+  const [doubtsLoading, setDoubtsLoading] = useState(true);
+  const [announcements, setAnn]     = useState([]);
 
   /* load my doubts */
   useEffect(() => {
     if (!userProfile?.uid) return;
     const q = query(collection(db, "doubts"), where("studentId", "==", userProfile.uid));
-    return onSnapshot(q,
-      snap => setMyDoubts(sortDesc(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
-      err => toast.error("Could not load doubts: " + err.message)
-    );
+    return onSnapshot(q, snap => {
+      setMyDoubts(sortDesc(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+      setDoubtsLoading(false);
+    }, err => { toast.error("Could not load doubts: " + err.message); setDoubtsLoading(false); });
   }, [userProfile?.uid]);
 
   /* load teacher announcements */
@@ -539,8 +608,9 @@ function StudentView({ userProfile }) {
         createdAt:   serverTimestamp(),
         reply:       null,
       });
-      toast.success("Doubt sent to your teacher!");
       rec.reset(); setText("");
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 2200);
     } catch (e) {
       toast.error("Failed to send doubt: " + e.message);
     } finally {
@@ -548,8 +618,13 @@ function StudentView({ userProfile }) {
     }
   }
 
+  /* which step is active */
+  const step = rec.recording ? 2 : rec.audioURL ? 3 : submitting ? 4 : 1;
+  const fmt  = s => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
   return (
     <div style={{ maxWidth: 700, margin: "0 auto" }}>
+      {showSuccess && <SuccessOverlay message="Doubt Sent to Teacher! 🎉" />}
 
       {/* ── Teacher Announcements ── */}
       {announcements.length > 0 && (
@@ -568,8 +643,7 @@ function StudentView({ userProfile }) {
                   <div style={{
                     width: 32, height: 32, borderRadius: "50%",
                     background: "linear-gradient(135deg, #c4b5fd, #8b5cf6)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 16,
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16,
                   }}>👩‍🏫</div>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 13, color: "#4c1d95" }}>{a.teacherName}</div>
@@ -578,11 +652,7 @@ function StudentView({ userProfile }) {
                 </div>
                 <span style={badge("#7c3aed")}>📢 Announcement</span>
               </div>
-              {a.audioUrl && (
-                <div style={{ marginBottom: a.text ? 10 : 0 }}>
-                  <AudioPlayer url={a.audioUrl} label="Listen to Announcement" />
-                </div>
-              )}
+              {a.audioUrl && <div style={{ marginBottom: a.text ? 10 : 0 }}><AudioPlayer url={a.audioUrl} label="Listen to Announcement" /></div>}
               {a.text && <p style={{ margin: 0, fontSize: 14, color: "#374151", lineHeight: 1.6 }}>{a.text}</p>}
             </div>
           ))}
@@ -591,24 +661,56 @@ function StudentView({ userProfile }) {
 
       {/* ── Ask Doubt ── */}
       <div style={card}>
-        <div style={{ fontFamily: "'Fredoka One', cursive", fontSize: 20, color: "#4f46e5", marginBottom: 4 }}>
+        <div style={{ fontFamily: "'Fredoka One', cursive", fontSize: 20, color: "#4f46e5", marginBottom: 14 }}>
           🎙️ Ask Your Doubt
         </div>
-        <p style={{ color: "#6b7280", fontSize: 13, marginBottom: 18, lineHeight: 1.5 }}>
-          Press <b>Start Recording</b>, speak your doubt clearly, then press <b>Stop</b>. Your teacher will reply soon!
-        </p>
 
-        <div style={{ marginBottom: 14 }}>
-          <RecorderUI rec={rec} />
+        {/* Step guide */}
+        <StepGuide step={step} />
+
+        {/* Big circular record button */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, marginBottom: 20 }}>
+          {!rec.audioURL && (
+            <button
+              className={`record-btn-big${rec.recording ? " stop-mode" : ""}`}
+              onClick={rec.recording ? rec.stop : rec.start}
+            >
+              {rec.recording && <><div className="record-ring" /><div className="record-ring" /></>}
+              {rec.recording ? "⏹" : "🎙️"}
+            </button>
+          )}
+
+          {/* Recording timer + wave */}
+          {rec.recording && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+              <SoundWave />
+              <div style={{ fontFamily: "'Fredoka One', cursive", fontSize: 16, color: "#ef4444" }}>
+                {fmt(rec.seconds)} — Listening…
+              </div>
+            </div>
+          )}
+
+          {/* Preview after recording */}
+          {rec.audioURL && (
+            <div style={{ width: "100%", background: "#f0f9ff", border: "1.5px solid #bae6fd", borderRadius: 14, padding: "14px 16px" }}>
+              <div style={{ fontWeight: 700, color: "#0369a1", fontSize: 13, marginBottom: 10 }}>
+                🎧 Preview your recording:
+              </div>
+              <AudioPlayer url={rec.audioURL} label="Listen Back" />
+              <button onClick={rec.reset} style={{ ...btn, background: "#fee2e2", color: "#dc2626", fontSize: 12, padding: "6px 14px", marginTop: 10 }}>
+                🗑️ Re-record
+              </button>
+            </div>
+          )}
+
+          {!rec.recording && !rec.audioURL && (
+            <div style={{ fontSize: 13, color: "#9ca3af", fontFamily: "'Fredoka One', cursive" }}>
+              Tap the big button to start
+            </div>
+          )}
         </div>
 
-        {rec.audioURL && (
-          <div style={{ background: "#f0f9ff", border: "1.5px solid #bae6fd", borderRadius: 12, padding: "12px 16px", marginBottom: 14 }}>
-            <div style={{ fontWeight: 600, color: "#0369a1", fontSize: 13, marginBottom: 8 }}>Preview your recording:</div>
-            <AudioPlayer url={rec.audioURL} label="Listen" />
-          </div>
-        )}
-
+        {/* Optional text */}
         <textarea
           value={text}
           onChange={e => setText(e.target.value)}
@@ -628,7 +730,8 @@ function StudentView({ userProfile }) {
             ...btn,
             background: rec.audioURL ? "#6366f1" : "#d1d5db",
             cursor: rec.audioURL ? "pointer" : "not-allowed",
-            width: "100%", justifyContent: "center",
+            width: "100%", justifyContent: "center", fontSize: 16,
+            padding: "13px 20px",
           }}
         >
           {submitting ? "Sending…" : "📨 Send Doubt to Teacher"}
@@ -640,8 +743,16 @@ function StudentView({ userProfile }) {
         📬 My Doubts
       </div>
 
-      {myDoubts.length === 0 && (
-        <div style={emptyBox}>No doubts sent yet. Ask your first doubt above!</div>
+      {/* skeleton while loading */}
+      {doubtsLoading && <><SkeletonCard /><SkeletonCard /></>}
+
+      {/* friendly empty state */}
+      {!doubtsLoading && myDoubts.length === 0 && (
+        <div className="doubts-empty">
+          <span className="doubts-empty-emoji">🤔</span>
+          <div className="doubts-empty-title">No doubts yet!</div>
+          <div className="doubts-empty-sub">Press the big red button above and ask your first doubt.</div>
+        </div>
       )}
 
       {myDoubts.map(d => (
