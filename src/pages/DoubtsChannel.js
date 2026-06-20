@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
-  collection, addDoc, query, where, orderBy,
+  collection, addDoc, query, where,
   onSnapshot, serverTimestamp, doc, updateDoc,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -124,11 +124,16 @@ function StudentView({ userProfile }) {
     const q = query(
       collection(db, "doubts"),
       where("studentId", "==", userProfile.uid),
-      orderBy("createdAt", "desc"),
     );
-    return onSnapshot(q, snap =>
-      setMyDoubts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    );
+    return onSnapshot(q, snap => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      docs.sort((a, b) => {
+        const ta = a.createdAt?.toMillis?.() ?? 0;
+        const tb = b.createdAt?.toMillis?.() ?? 0;
+        return tb - ta;
+      });
+      setMyDoubts(docs);
+    }, err => toast.error("Could not load doubts: " + err.message));
   }, [userProfile?.uid]);
 
   async function submit() {
@@ -310,11 +315,16 @@ function TeacherView({ userProfile }) {
     const q = query(
       collection(db, "doubts"),
       where("classId", "==", userProfile.classId),
-      orderBy("createdAt", "desc"),
     );
-    return onSnapshot(q, snap =>
-      setDoubts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    );
+    return onSnapshot(q, snap => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      docs.sort((a, b) => {
+        const ta = a.createdAt?.toMillis?.() ?? 0;
+        const tb = b.createdAt?.toMillis?.() ?? 0;
+        return tb - ta;
+      });
+      setDoubts(docs);
+    }, err => toast.error("Could not load doubts: " + err.message));
   }, [userProfile?.classId]);
 
   function openReply(id) {
@@ -552,10 +562,16 @@ function AdminView() {
   const [doubts, setDoubts] = useState([]);
 
   useEffect(() => {
-    const q = query(collection(db, "doubts"), orderBy("createdAt", "desc"));
-    return onSnapshot(q, snap =>
-      setDoubts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    );
+    const q = query(collection(db, "doubts"));
+    return onSnapshot(q, snap => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      docs.sort((a, b) => {
+        const ta = a.createdAt?.toMillis?.() ?? 0;
+        const tb = b.createdAt?.toMillis?.() ?? 0;
+        return tb - ta;
+      });
+      setDoubts(docs);
+    }, err => toast.error("Could not load doubts: " + err.message));
   }, []);
 
   const pending = doubts.filter(d => d.status === "pending").length;
