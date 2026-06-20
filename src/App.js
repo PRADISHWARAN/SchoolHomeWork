@@ -172,7 +172,7 @@ function AppRoutes() {
         <ProtectedRoute><AppLayout><BusTracker /></AppLayout></ProtectedRoute>
       } />
       <Route path="/doubts" element={
-        <ProtectedRoute allowedRoles={["student","teacher","admin"]}><AppLayout><DoubtsChannel /></AppLayout></ProtectedRoute>
+        <ProtectedRoute allowedRoles={["student","teacher"]}><AppLayout><DoubtsChannel /></AppLayout></ProtectedRoute>
       } />
 
       <Route path="/" element={<Navigate to={currentUser ? "/dashboard" : "/login"} />} />
