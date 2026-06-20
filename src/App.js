@@ -19,6 +19,7 @@ import Timetable from "./pages/Timetable";
 import AcademicCalendar from "./pages/AcademicCalendar";
 import Attendance from "./pages/Attendance";
 import BusTracker from "./pages/BusTracker";
+import DoubtsChannel from "./pages/DoubtsChannel";
 import "./styles/global.css";
 
 /* ── Holiday detection ──────────────────────────────────── */
@@ -171,6 +172,9 @@ function AppRoutes() {
       } />
       <Route path="/bus-tracker" element={
         <ProtectedRoute><AppLayout><BusTracker /></AppLayout></ProtectedRoute>
+      } />
+      <Route path="/doubts" element={
+        <ProtectedRoute allowedRoles={["student","teacher","admin"]}><AppLayout><DoubtsChannel /></AppLayout></ProtectedRoute>
       } />
 
       <Route path="/" element={<Navigate to={currentUser ? "/dashboard" : "/login"} />} />

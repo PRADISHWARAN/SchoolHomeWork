@@ -11,6 +11,7 @@ const adminLinks = [
   { emoji: "📖", label: "All Homework",      path: "/all-homework", color: "#0891b2" },
   { emoji: "🗓️", label: "Attendance",        path: "/attendance",   color: "#10b981" },
   { emoji: "📆", label: "Academic Calendar", path: "/calendar",     color: "#f59e0b" },
+  { emoji: "🎙️", label: "Voice Doubts",      path: "/doubts",       color: "#7c3aed" },
   { emoji: "🚌", label: "Bus Tracker",       path: "/bus-tracker",  color: "#1d4ed8" },
 ];
 const teacherLinks = [
@@ -20,6 +21,7 @@ const teacherLinks = [
   { emoji: "🗓️", label: "Attendance",        path: "/attendance",   color: "#059669" },
   { emoji: "📅", label: "Timetable",          path: "/timetable",    color: "#f59e0b" },
   { emoji: "📆", label: "Academic Calendar",  path: "/calendar",     color: "#ec4899" },
+  { emoji: "🎙️", label: "Voice Doubts",       path: "/doubts",       color: "#7c3aed" },
   { emoji: "🚌", label: "Bus Tracker",        path: "/bus-tracker",  color: "#1d4ed8" },
 ];
 const studentLinks = [
@@ -27,6 +29,7 @@ const studentLinks = [
   { emoji: "📚", label: "My Homework",       path: "/my-homework",  color: "#f59e0b" },
   { emoji: "📅", label: "Timetable",          path: "/timetable",    color: "#10b981" },
   { emoji: "📆", label: "Academic Calendar",  path: "/calendar",     color: "#ec4899" },
+  { emoji: "🎙️", label: "Voice Doubts",       path: "/doubts",       color: "#7c3aed" },
   { emoji: "🚌", label: "Bus Tracker",        path: "/bus-tracker",  color: "#1d4ed8" },
 ];
 const driverLinks = [
