@@ -160,19 +160,29 @@ export default function Dashboard() {
           };
         });
 
+        // attach submission info to each recent homework for teacher rows
+        const subInfoMap = {};
+        pending.forEach(p => { subInfoMap[p.hw.id] = { submittedCount: p.submittedCount, totalStudents: p.totalStudents }; });
+
         setStats({ totalHw: hw.length, submissions: allSubs.length, totalStudents: students.length });
-        setRecentHomework(hw.slice(0, 5));
+        setRecentHomework(hw.slice(0, 5).map(h => ({ ...h, subInfo: subInfoMap[h.id] || null })));
         setPendingData(pending);
 
       } else if (role === "student") {
         const q       = query(collection(db, "homework"), where("classId", "==", userProfile.classId));
         const snap    = await getDocs(q);
-        const hw      = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        let   hw      = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // sort newest first
+        hw.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
         const subQ    = query(collection(db, "submissions"), where("studentId", "==", userProfile.uid || ""));
         const subSnap = await getDocs(subQ);
         const submittedIds = new Set(subSnap.docs.map(d => d.data().homeworkId));
-        const pending = hw.filter(h => !submittedIds.has(h.id));
-        setStats({ total: hw.length, submitted: subSnap.size, pending: pending.length });
+
+        // count only submissions that belong to THIS class's homework (fixes the mismatch bug)
+        const submitted = hw.filter(h => submittedIds.has(h.id)).length;
+        const pending   = hw.filter(h => !submittedIds.has(h.id));
+        setStats({ total: hw.length, submitted, pending: pending.length });
         setRecentHomework(hw.slice(0, 5).map(h => ({ ...h, submitted: submittedIds.has(h.id) })));
       }
     } catch (e) { console.error(e); }
@@ -593,7 +603,14 @@ export default function Dashboard() {
               <p>{role === "teacher" ? "Post your first homework assignment! ✏️" : "No homework yet — enjoy the break! 🎉"}</p>
             </div>
           ) : (
-            recentHomework.map(hw => <HomeworkRow key={hw.id} hw={hw} />)
+            recentHomework.map(hw => (
+              <HomeworkRow
+                key={hw.id}
+                hw={hw}
+                role={role}
+                onTap={() => navigate(role === "teacher" ? "/submissions" : "/my-homework")}
+              />
+            ))
           )}
         </div>
       )}
@@ -618,40 +635,73 @@ function StatCard({ emoji, bg, color, label, value, onClick }) {
   );
 }
 
-function HomeworkRow({ hw }) {
+function HomeworkRow({ hw, role, onTap, subInfo }) {
+  const now        = new Date();
+  const todayStr   = now.toISOString().slice(0, 10);
+  const tomorrowStr = new Date(now.getTime() + 86400000).toISOString().slice(0, 10);
+
   const dueDate    = hw.dueDate
     ? new Date(hw.dueDate + (hw.dueTime ? `T${hw.dueTime}` : "T23:59"))
     : null;
-  const isOverdue  = dueDate && dueDate < new Date();
-  const isGame     = hw.type === "game";
+  const isOverdue   = dueDate && dueDate < now;
+  const isDueToday  = !isOverdue && hw.dueDate === todayStr;
+  const isDueTomorrow = !isOverdue && !isDueToday && hw.dueDate === tomorrowStr;
+  const isGame      = hw.type === "game";
   const isSubmitted = !!hw.submitted;
 
   let badgeClass = "badge-blue";
   let badgeLabel = isGame ? "🎮 Game" : "Active";
-  if (isSubmitted)      { badgeClass = "badge-green"; badgeLabel = "✅ Submitted"; }
-  else if (isOverdue)   { badgeClass = "badge-red";   badgeLabel = "Overdue"; }
-  else if (isGame)      { badgeClass = "badge-game";  }
+  if (isSubmitted)        { badgeClass = "badge-green"; badgeLabel = "✅ Submitted"; }
+  else if (isDueToday)    { badgeClass = "badge-red";   badgeLabel = "🔴 Due Today!"; }
+  else if (isDueTomorrow) { badgeClass = "badge-yellow"; badgeLabel = "🟡 Due Tomorrow"; }
+  else if (isOverdue)     { badgeClass = "badge-red";   badgeLabel = "⚠️ Overdue"; }
+  else if (isGame)        { badgeClass = "badge-game";  }
+
+  const rowBg = isSubmitted ? "#f0fdf4"
+    : isDueToday ? "#fff5f5"
+    : isDueTomorrow ? "#fffbeb"
+    : "transparent";
 
   return (
-    <div style={{
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "14px 0", borderBottom: "1.5px solid #f3f4f6", gap: 12, flexWrap: "wrap",
-    }}>
-      <div>
+    <div
+      onClick={onTap}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "14px 10px", borderBottom: "1.5px solid #f3f4f6",
+        gap: 12, flexWrap: "wrap",
+        borderRadius: 12, background: rowBg,
+        cursor: onTap ? "pointer" : "default",
+        transition: "background 0.15s",
+        marginBottom: 2,
+      }}
+      onMouseEnter={e => { if (onTap) e.currentTarget.style.background = isSubmitted ? "#dcfce7" : isDueToday ? "#fee2e2" : isDueTomorrow ? "#fef3c7" : "#f9fafb"; }}
+      onMouseLeave={e => { e.currentTarget.style.background = rowBg; }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 20 }}>{isGame ? "🎮" : isSubmitted ? "✅" : "📝"}</span>
+          <span style={{ fontSize: 20, flexShrink: 0 }}>{isGame ? "🎮" : isSubmitted ? "✅" : isDueToday ? "🔴" : isDueTomorrow ? "🟡" : "📝"}</span>
           <div style={{
             fontWeight: 800, fontSize: 15, fontFamily: "'Fredoka One', cursive",
-            color: isSubmitted ? "#059669" : "inherit",
+            color: isSubmitted ? "#059669" : isDueToday ? "#dc2626" : isDueTomorrow ? "#d97706" : "inherit",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}>{hw.title}</div>
         </div>
         <div style={{ color: "#6b7280", fontSize: 13, marginTop: 2 }}>
           {hw.subject} · Class {hw.classId}
+          {subInfo && (
+            <span style={{
+              marginLeft: 8,
+              color: subInfo.submittedCount === subInfo.totalStudents ? "#059669" : "#d97706",
+              fontWeight: 700,
+            }}>
+              · {subInfo.submittedCount}/{subInfo.totalStudents} submitted
+            </span>
+          )}
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
         {dueDate && (
-          <span style={{ fontSize: 12, color: isSubmitted ? "#10b981" : isOverdue ? "#ef4444" : "#6b7280" }}>
+          <span style={{ fontSize: 12, color: isSubmitted ? "#10b981" : isOverdue ? "#ef4444" : isDueToday ? "#dc2626" : isDueTomorrow ? "#d97706" : "#6b7280" }}>
             📅 {dueDate.toLocaleDateString()}{hw.dueTime && ` · ⏰ ${new Date(`2000-01-01T${hw.dueTime}`).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
           </span>
         )}

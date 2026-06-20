@@ -104,7 +104,11 @@ export default function Sidebar() {
     role === "driver"  ? driverLinks :
     [{ emoji: "🏠", label: "Dashboard", path: "/dashboard", color: "#6366f1" }];
 
-  const handleLogout = async () => { await logout(); navigate("/login"); };
+  const handleLogout = async () => {
+    if (!window.confirm("Are you sure you want to logout?")) return;
+    await logout();
+    navigate("/login");
+  };
 
   const sidebarContent = (
     <div style={{ ...styles.sidebar, backgroundImage: themeConfig?.sidebar || styles.sidebar.backgroundImage }}>
