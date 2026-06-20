@@ -1,5 +1,5 @@
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
-const { onSchedule }        = require("firebase-functions/v2/scheduler");
+const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onSchedule }                           = require("firebase-functions/v2/scheduler");
 const admin                 = require("firebase-admin");
 
 admin.initializeApp();
@@ -20,6 +20,22 @@ async function getStudentTokens(classId) {
 async function getAllTokens() {
   const snap = await db.collection("users").get();
   return snap.docs.map(d => d.data().fcmToken).filter(Boolean);
+}
+
+/* ─── Helper: FCM tokens for teacher(s) of a class ─────────── */
+async function getTeacherTokens(classId) {
+  const snap = await db.collection("users")
+    .where("role",    "==", "teacher")
+    .where("classId", "==", classId)
+    .get();
+  return snap.docs.map(d => d.data().fcmToken).filter(Boolean);
+}
+
+/* ─── Helper: FCM token for a specific student by uid ───────── */
+async function getTokenByUid(uid) {
+  const userDoc = await db.collection("users").doc(uid).get();
+  const token   = userDoc.data()?.fcmToken;
+  return token ? [token] : [];
 }
 
 /* ─── Helper: send to a list of tokens (chunks of 500) ──────── */
@@ -197,3 +213,55 @@ exports.threeHourDueReminder = onSchedule(
     }
   }
 );
+
+/* ═══════════════════════════════════════════════════════════
+   TRIGGER 5 — Student posts a voice doubt → teacher notified
+═══════════════════════════════════════════════════════════ */
+exports.onDoubtCreated = onDocumentCreated("doubts/{doubtId}", async (event) => {
+  const doubt = event.data?.data();
+  if (!doubt?.classId) return;
+
+  const tokens = await getTeacherTokens(doubt.classId);
+  await sendToTokens(
+    tokens,
+    `🎙️ New Voice Doubt — ${doubt.studentName}`,
+    `${doubt.studentName} (Class ${doubt.classId}) posted a voice doubt. Tap to listen & reply.`
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════
+   TRIGGER 6 — Teacher replies to a doubt → student notified
+═══════════════════════════════════════════════════════════ */
+exports.onDoubtReplied = onDocumentUpdated("doubts/{doubtId}", async (event) => {
+  const before = event.data.before.data();
+  const after  = event.data.after.data();
+
+  // Fire only when a reply is freshly added (was null, now has value)
+  if (before.reply || !after.reply) return;
+
+  const tokens = await getTokenByUid(after.studentId);
+  await sendToTokens(
+    tokens,
+    `✅ Your Doubt Was Answered!`,
+    `${after.reply.teacherName} replied to your voice doubt. Tap to listen!`
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════
+   TRIGGER 7 — Teacher posts class announcement → students notified
+═══════════════════════════════════════════════════════════ */
+exports.onClassAnnouncementCreated = onDocumentCreated("classAnnouncements/{id}", async (event) => {
+  const ann = event.data?.data();
+  if (!ann?.classId) return;
+
+  const tokens = await getStudentTokens(ann.classId);
+  const body   = ann.text
+    ? (ann.text.length > 110 ? ann.text.slice(0, 107) + "..." : ann.text)
+    : `${ann.teacherName} sent a voice announcement. Tap to listen!`;
+
+  await sendToTokens(
+    tokens,
+    `📢 Announcement from ${ann.teacherName}`,
+    body
+  );
+});
