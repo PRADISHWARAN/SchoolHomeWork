@@ -256,12 +256,12 @@ const styles = {
     marginTop: 8, transition: "background 0.2s",
   },
   hamburger: {
-    display: "none", position: "fixed", top: 16, left: 16, zIndex: 200,
+    display: "none", position: "fixed", top: 16, left: 16, zIndex: 1200,
     background: "#4f46e5", border: "none", borderRadius: 12,
     padding: 10, cursor: "pointer", color: "white",
     boxShadow: "0 4px 12px rgba(79,70,229,0.4)",
   },
-  mobileOverlay: { display: "none", position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 150 },
+  mobileOverlay: { display: "none", position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1100 },
   mobileSidebar: { width: 268, height: "100%" },
 };
 
