@@ -347,14 +347,28 @@ export default function MyHomework() {
             {selectedHw.type !== "game" && (
               <div className="form-group">
                 <label>Upload Your Work (Photo / PDF)</label>
-                <div className="file-upload-area" onClick={() => document.getElementById("sub-file").click()}>
-                  <FileUp size={24} color="#6366f1" style={{ margin: "0 auto 8px" }} />
-                  <div style={{ fontSize: 14, color: "#6366f1", fontWeight: 700 }}>
-                    {subForm.file ? subForm.file.name : "Click to upload"}
+                {subForm.file ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "#f0f4ff", borderRadius: 12, border: "2px solid #c7d2fe" }}>
+                    <FileUp size={18} color="#6366f1" />
+                    <span style={{ fontSize: 14, color: "#4f46e5", fontWeight: 700, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subForm.file.name}</span>
+                    <button onClick={() => setSubForm({ ...subForm, file: null })} style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", display: "flex" }}><X size={16} /></button>
                   </div>
-                  <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>Take a photo of your work and upload it</div>
-                </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button type="button" onClick={() => document.getElementById("sub-file").click()}
+                      style={{ flex: 1, padding: "12px 0", borderRadius: 12, border: "2px dashed #c7d2fe", background: "#f8f9ff", color: "#6366f1", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                      <FileUp size={18} /> Choose File
+                    </button>
+                    <button type="button" onClick={() => document.getElementById("sub-camera").click()}
+                      style={{ flex: 1, padding: "12px 0", borderRadius: 12, border: "2px dashed #fde68a", background: "#fffbeb", color: "#d97706", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                      📷 Take Photo
+                    </button>
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>Take a photo of your notebook or upload a PDF</div>
                 <input id="sub-file" type="file" accept=".pdf,.jpg,.jpeg,.png"
+                  style={{ display: "none" }} onChange={e => setSubForm({ ...subForm, file: e.target.files[0] })} />
+                <input id="sub-camera" type="file" accept="image/*" capture="environment"
                   style={{ display: "none" }} onChange={e => setSubForm({ ...subForm, file: e.target.files[0] })} />
               </div>
             )}

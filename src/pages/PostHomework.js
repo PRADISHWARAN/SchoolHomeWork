@@ -42,9 +42,10 @@ export default function PostHomework() {
   };
   const [form, setForm] = useState(emptyForm);
 
-  useEffect(() => { fetchHomework(); }, []);
+  useEffect(() => { if (userProfile?.classId) fetchHomework(); }, [userProfile]);
 
   async function fetchHomework() {
+    if (!userProfile?.classId) return;
     setLoading(true);
     try {
       const q = query(collection(db, "homework"), where("classId", "==", userProfile.classId));
@@ -385,14 +386,28 @@ export default function PostHomework() {
 
             <div className="form-group">
               <label>Attach File (Optional{form.type === "game" ? " — for extra materials" : ""})</label>
-              <div className="file-upload-area" onClick={() => document.getElementById("hw-file").click()}>
-                <FileUp size={24} color="#6366f1" style={{ margin: "0 auto 8px" }} />
-                <div style={{ fontSize: 14, color: "#6366f1", fontWeight: 700 }}>
-                  {form.file ? form.file.name : "Click to upload PDF or Image"}
+              {form.file ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "#f0f4ff", borderRadius: 12, border: "2px solid #c7d2fe" }}>
+                  <FileUp size={18} color="#6366f1" />
+                  <span style={{ fontSize: 14, color: "#4f46e5", fontWeight: 700, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{form.file.name}</span>
+                  <button onClick={() => setForm({ ...form, file: null })} style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", display: "flex" }}><X size={16} /></button>
                 </div>
-                <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>PDF, JPG, PNG up to 10MB</div>
-              </div>
+              ) : (
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button type="button" onClick={() => document.getElementById("hw-file").click()}
+                    style={{ flex: 1, padding: "12px 0", borderRadius: 12, border: "2px dashed #c7d2fe", background: "#f8f9ff", color: "#6366f1", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                    <FileUp size={18} /> Choose File
+                  </button>
+                  <button type="button" onClick={() => document.getElementById("hw-camera").click()}
+                    style={{ flex: 1, padding: "12px 0", borderRadius: 12, border: "2px dashed #fde68a", background: "#fffbeb", color: "#d97706", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                    📷 Take Photo
+                  </button>
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>PDF, JPG, PNG up to 10MB</div>
               <input id="hw-file" type="file" accept=".pdf,.jpg,.jpeg,.png"
+                style={{ display: "none" }} onChange={e => setForm({ ...form, file: e.target.files[0] })} />
+              <input id="hw-camera" type="file" accept="image/*" capture="environment"
                 style={{ display: "none" }} onChange={e => setForm({ ...form, file: e.target.files[0] })} />
             </div>
 
