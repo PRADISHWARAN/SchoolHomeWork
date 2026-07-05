@@ -35,6 +35,10 @@ export default function PostHomework() {
     ? SUBJECTS
     : SUBJECTS.filter((s) => teacherSubjects.includes(s));
 
+  const isCommonTeacher = userProfile?.classId === "ALL";
+  const [selectedClassId, setSelectedClassId] = useState("");
+  const [classList, setClassList] = useState([]);
+
   const emptyForm = {
     type: "homework",
     title: "", subject: "", description: "", dueDate: "", dueTime: "", file: null,
@@ -42,13 +46,35 @@ export default function PostHomework() {
   };
   const [form, setForm] = useState(emptyForm);
 
-  useEffect(() => { if (userProfile?.classId) fetchHomework(); }, [userProfile]);
+  useEffect(() => {
+    if (!userProfile) return;
+    if (isCommonTeacher) {
+      fetchClassList();
+    } else if (userProfile.classId) {
+      setSelectedClassId(userProfile.classId);
+      fetchHomework(userProfile.classId);
+    }
+  }, [userProfile]);
 
-  async function fetchHomework() {
-    if (!userProfile?.classId) return;
+  async function fetchClassList() {
+    try {
+      const snap = await getDocs(query(collection(db, "users"), where("role", "==", "student")));
+      const classes = [...new Set(
+        snap.docs.map(d => d.data().classId).filter(c => c && c !== "ALL")
+      )].sort();
+      setClassList(classes);
+      if (classes.length > 0) {
+        setSelectedClassId(classes[0]);
+        fetchHomework(classes[0]);
+      }
+    } catch { toast.error("Failed to load class list"); }
+  }
+
+  async function fetchHomework(classId) {
+    if (!classId || classId === "ALL") return;
     setLoading(true);
     try {
-      const q = query(collection(db, "homework"), where("classId", "==", userProfile.classId));
+      const q = query(collection(db, "homework"), where("classId", "==", classId));
       const snap = await getDocs(q);
       let hw = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
@@ -66,7 +92,7 @@ export default function PostHomework() {
 
       /* ── Submissions map: { hwId → count } ── */
       const subSnap = await getDocs(
-        query(collection(db, "submissions"), where("classId", "==", userProfile.classId))
+        query(collection(db, "submissions"), where("classId", "==", classId))
       );
       const smap = {};
       subSnap.docs.forEach(d => {
@@ -79,7 +105,7 @@ export default function PostHomework() {
       const stuSnap = await getDocs(
         query(collection(db, "users"),
           where("role",    "==", "student"),
-          where("classId", "==", userProfile.classId)
+          where("classId", "==", classId)
         )
       );
       setTotalStudents(stuSnap.size);
@@ -106,7 +132,7 @@ export default function PostHomework() {
     try {
       let fileUrl = null, fileName = null;
       if (form.file) {
-        const fileRef = ref(storage, `homework/${userProfile.classId}/${Date.now()}_${form.file.name}`);
+        const fileRef = ref(storage, `homework/${selectedClassId}/${Date.now()}_${form.file.name}`);
         await uploadBytes(fileRef, form.file);
         fileUrl = await getDownloadURL(fileRef);
         fileName = form.file.name;
@@ -119,7 +145,7 @@ export default function PostHomework() {
         description: form.description,
         dueDate: form.dueDate,
         dueTime: form.dueTime || null,
-        classId: userProfile.classId,
+        classId: selectedClassId,
         teacherId: currentUser.uid,
         teacherName: userProfile.name,
         fileUrl,
@@ -133,7 +159,7 @@ export default function PostHomework() {
       toast.success(label);
       setForm(emptyForm);
       setShowModal(false);
-      fetchHomework();
+      fetchHomework(selectedClassId);
     } catch (e) {
       console.error(e);
       toast.error("Failed: " + (e.code || e.message));
@@ -150,7 +176,7 @@ export default function PostHomework() {
       batch.delete(doc(db, "homework", id));
       await batch.commit();
       toast.success("Deleted");
-      fetchHomework();
+      fetchHomework(selectedClassId);
     } catch { toast.error("Failed to delete"); }
   }
 
@@ -161,7 +187,7 @@ export default function PostHomework() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Class {userProfile?.classId} — Assignments</h1>
+          <h1>Class {selectedClassId || "—"} — Assignments</h1>
           <p>Post homework and game challenges for your students</p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -204,6 +230,27 @@ export default function PostHomework() {
           </button>
         </div>
       </div>
+
+      {/* ── Common teacher: class switcher ── */}
+      {isCommonTeacher && (
+        <div className="card" style={{ marginBottom: 20, padding: "16px 20px" }}>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>🏫 Select Class to Manage</label>
+            <select
+              value={selectedClassId}
+              onChange={(e) => {
+                setSelectedClassId(e.target.value);
+                fetchHomework(e.target.value);
+              }}
+            >
+              {classList.length === 0 && <option value="">Loading classes…</option>}
+              {classList.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
       {/* ── Calendar view ── */}
       {viewMode === "calendar" && !loading && (
@@ -256,9 +303,14 @@ export default function PostHomework() {
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "90vh", overflowY: "auto" }}>
             <div className="modal-header">
-              <h2 className="modal-title">
-                {form.type === "game" ? "🎮 Post Game Challenge" : "📚 Post Homework"}
-              </h2>
+              <div>
+                <h2 className="modal-title">
+                  {form.type === "game" ? "🎮 Post Game Challenge" : "📚 Post Homework"}
+                </h2>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                  🏫 Posting to Class {selectedClassId}
+                </div>
+              </div>
               <button onClick={() => setShowModal(false)} style={closeBtn}><X size={18} /></button>
             </div>
 
