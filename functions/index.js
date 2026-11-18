@@ -62,6 +62,21 @@ async function sendToTokens(tokens, title, body) {
   }
 }
 
+/* ─── Helpers: school time zone (IST, UTC+05:30, no DST) ─────
+   Cloud Functions run in UTC, but teachers enter dueDate/dueTime
+   in Indian time, so all date math must be done in IST.        */
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+
+// Date → "YYYY-MM-DD" as seen on a clock in India
+function istDateStr(date) {
+  return new Date(date.getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+// "YYYY-MM-DD" + "HH:MM" (IST) → exact Date instant
+function istDateTime(dateStr, timeStr) {
+  return new Date(`${dateStr}T${timeStr}:00+05:30`);
+}
+
 /* ─── Helper: format "HH:MM" → "2:30 PM" ─────────────────── */
 function fmtTime(timeStr) {
   if (!timeStr) return null;
@@ -116,7 +131,7 @@ exports.onAnnouncementCreated = onDocumentCreated("announcements/{id}", async (e
 exports.dailyDueReminder = onSchedule(
   { schedule: "every day 08:00", timeZone: "Asia/Kolkata" },
   async () => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = istDateStr(new Date());
 
     const hwSnap = await db.collection("homework")
       .where("dueDate", "==", today)
@@ -161,10 +176,10 @@ exports.threeHourDueReminder = onSchedule(
     const now     = new Date();
     const in3h    = new Date(now.getTime() + 3 * 60 * 60 * 1000);
 
-    // Collect all date strings that fall in the now → now+3h window
+    // Collect all IST date strings that fall in the now → now+3h window
     const dateSet = new Set();
-    dateSet.add(now.toISOString().slice(0, 10));
-    dateSet.add(in3h.toISOString().slice(0, 10));
+    dateSet.add(istDateStr(now));
+    dateSet.add(istDateStr(in3h));
 
     for (const dateStr of dateSet) {
       const hwSnap = await db.collection("homework")
@@ -176,8 +191,8 @@ exports.threeHourDueReminder = onSchedule(
         const hw = hwDoc.data();
         if (!hw.dueTime) continue; // no time set — handled by dailyDueReminder
 
-        // Build the exact due datetime
-        const dueDateTime   = new Date(`${hw.dueDate}T${hw.dueTime}:00`);
+        // Build the exact due datetime (dueTime is IST, server is UTC)
+        const dueDateTime   = istDateTime(hw.dueDate, hw.dueTime);
         const msUntilDue    = dueDateTime - now;
         const hoursUntilDue = msUntilDue / (1000 * 60 * 60);
 
