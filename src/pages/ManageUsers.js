@@ -4,7 +4,8 @@ import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
-import { auth, db, storage, firebaseConfig } from "../firebase/config";
+import { httpsCallable } from "firebase/functions";
+import { auth, db, storage, functions, firebaseConfig } from "../firebase/config";
 import { Plus, Trash2, Users, X, Camera, Pencil } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -384,11 +385,22 @@ export default function ManageUsers() {
   async function handleDelete(userId, userName) {
     if (!window.confirm(`Delete ${userName}? This cannot be undone.`)) return;
     try {
-      await deleteDoc(doc(db, "users", userId));
+      // Deletes both the login and the profile (Cloud Function, admin-only)
+      await httpsCallable(functions, "deleteUserAccount")({ uid: userId });
       toast.success("User removed");
       fetchUsers();
-    } catch {
-      toast.error("Failed to delete user");
+    } catch (e) {
+      // Function not deployed yet → fall back to removing the profile only
+      // (an undeployed callable usually surfaces as a CORS "internal" error)
+      if (["functions/not-found", "functions/unavailable", "functions/internal"].includes(e.code)) {
+        try {
+          await deleteDoc(doc(db, "users", userId));
+          toast.success("User profile removed (their login still exists — deploy Cloud Functions to remove it too)");
+          fetchUsers();
+          return;
+        } catch { /* fall through */ }
+      }
+      toast.error("Failed to delete user: " + (e.message || e.code));
     }
   }
 

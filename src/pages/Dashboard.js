@@ -4,6 +4,7 @@ import { useTheme } from "../context/ThemeContext";
 import {
   collection, query, where, getDocs,
   addDoc, serverTimestamp,
+  getCountFromServer, orderBy, limit,
 } from "firebase/firestore";
 import { db } from "../firebase/config";
 import { useNavigate } from "react-router-dom";
@@ -94,14 +95,21 @@ export default function Dashboard() {
     if (!userProfile) { setLoading(false); return; }
     try {
       if (role === "admin") {
-        const usersSnap = await getDocs(collection(db, "users"));
-        const hwSnap    = await getDocs(collection(db, "homework"));
-        const students  = usersSnap.docs.filter(d => d.data().role === "student").length;
-        const teachers  = usersSnap.docs.filter(d => d.data().role === "teacher").length;
-        setStats({ students, teachers, totalHw: hwSnap.size });
-        const allHw = hwSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        allHw.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-        setRecentHomework(allHw.slice(0, 5));
+        // Count queries cost ~1 read each instead of downloading every document
+        const usersCol = collection(db, "users");
+        const hwCol    = collection(db, "homework");
+        const [stuCount, teaCount, hwCount, recentSnap] = await Promise.all([
+          getCountFromServer(query(usersCol, where("role", "==", "student"))),
+          getCountFromServer(query(usersCol, where("role", "==", "teacher"))),
+          getCountFromServer(hwCol),
+          getDocs(query(hwCol, orderBy("createdAt", "desc"), limit(5))),
+        ]);
+        setStats({
+          students: stuCount.data().count,
+          teachers: teaCount.data().count,
+          totalHw:  hwCount.data().count,
+        });
+        setRecentHomework(recentSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
       } else if (role === "teacher") {
         /* ── teacher subject scope ── */

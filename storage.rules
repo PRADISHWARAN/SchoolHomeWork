@@ -1,0 +1,67 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────
+// SchoolDesk — Cloud Storage security rules
+// Only signed-in users can read or upload. Each upload path has a
+// size and file-type limit so nobody can fill the free 5 GB quota.
+// ─────────────────────────────────────────────────────────────
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() { return request.auth != null; }
+    function maxMB(n) { return request.resource.size < n * 1024 * 1024; }
+    function isImage() { return request.resource.contentType.matches('image/.*'); }
+    function isPdf()   { return request.resource.contentType == 'application/pdf'; }
+    function isAudio() {
+      return request.resource.contentType.matches('audio/.*')
+          || request.resource.contentType.matches('video/webm')
+          || request.resource.contentType.matches('video/mp4');
+    }
+
+    // Homework attachments posted by teachers
+    match /homework/{classId}/{file} {
+      allow read: if signedIn();
+      allow create: if signedIn() && maxMB(20) && (isImage() || isPdf());
+    }
+
+    // Student submissions — each student can only write in their own folder
+    match /submissions/{uid}/{file} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == uid
+                    && maxMB(10) && (isImage() || isPdf());
+    }
+
+    // Profile photos (uploaded by admin)
+    match /profilePhotos/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && maxMB(5) && isImage();
+    }
+
+    // Teacher voice announcements
+    match /announcements/{file} {
+      allow read: if signedIn();
+      allow create: if signedIn() && maxMB(10) && isAudio();
+    }
+
+    // Teacher voice replies to doubts
+    match /doubts/replies/{file} {
+      allow read: if signedIn();
+      allow create: if signedIn() && maxMB(10) && isAudio();
+    }
+
+    // Student voice doubts — file name must start with the student's uid
+    match /doubts/{file} {
+      allow read: if signedIn();
+      allow create: if signedIn() && maxMB(10) && isAudio()
+                    && file.matches(request.auth.uid + '_.*');
+    }
+
+    // Academic calendar PDF (admin)
+    match /calendar/{file} {
+      allow read: if signedIn();
+      allow write: if signedIn() && maxMB(20) && isPdf();
+    }
+
+    // Everything else is denied by default.
+  }
+}

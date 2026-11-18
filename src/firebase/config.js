@@ -16,6 +16,7 @@ import { getAuth } from "firebase/auth";
 import { initializeFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getMessaging } from "firebase/messaging";
+import { getFunctions } from "firebase/functions";
 
 export const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -33,6 +34,7 @@ export const db      = initializeFirestore(app, {
   experimentalForceLongPolling: true,   // fixes real-time on Render.com / proxy hosts
 });
 export const storage = getStorage(app);
+export const functions = getFunctions(app);
 
 let messaging = null;
 try { messaging = getMessaging(app); } catch (e) { console.warn("FCM not available:", e.message); }

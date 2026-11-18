@@ -1,0 +1,132 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────
+// SchoolDesk — Firestore security rules
+//
+// Roles live in users/{uid}.role : admin | teacher | student | driver
+// Class lives in users/{uid}.classId. Teachers with classId "ALL"
+// (common teachers) may work with every class.
+// Cloud Functions use the Admin SDK and are not affected by these rules.
+// ─────────────────────────────────────────────────────────────
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────
+    function signedIn() { return request.auth != null; }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function me() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function hasRole(r) { return signedIn() && me().role == r; }
+    function isAdmin()   { return hasRole('admin'); }
+    function isTeacher() { return hasRole('teacher'); }
+    function isStudent() { return hasRole('student'); }
+    function isDriver()  { return hasRole('driver'); }
+
+    // Teacher of class c (or a common teacher who teaches all classes)
+    function teachesClass(c) {
+      return isTeacher() && (me().classId == 'ALL' || me().classId == c);
+    }
+    // Student enrolled in class c
+    function inClass(c) { return isStudent() && me().classId == c; }
+    // Admin or a teacher of class c
+    function staffFor(c) { return isAdmin() || teachesClass(c); }
+
+    function onlyChanges(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    // ── Users ────────────────────────────────────────────────
+    match /users/{uid} {
+      // Own profile; admins see everyone; teachers see student profiles.
+      allow read: if isSelf(uid)
+                  || isAdmin()
+                  || (isTeacher() && resource.data.role == 'student');
+      allow create, delete: if isAdmin();
+      // Users may only refresh their own push-notification token.
+      allow update: if isAdmin()
+                    || (isSelf(uid) && onlyChanges(['fcmToken']));
+    }
+
+    // ── Homework ─────────────────────────────────────────────
+    match /homework/{hwId} {
+      allow read: if staffFor(resource.data.classId)
+                  || inClass(resource.data.classId);
+      allow create: if teachesClass(request.resource.data.classId)
+                    && request.resource.data.teacherId == request.auth.uid;
+      allow update: if staffFor(resource.data.classId)
+                    && request.resource.data.classId == resource.data.classId;
+      allow delete: if staffFor(resource.data.classId);
+    }
+
+    // ── Submissions ──────────────────────────────────────────
+    match /submissions/{subId} {
+      allow read: if staffFor(resource.data.classId)
+                  || isSelf(resource.data.studentId);
+      allow create: if isStudent()
+                    && request.resource.data.studentId == request.auth.uid
+                    && request.resource.data.classId == me().classId;
+      allow update: if staffFor(resource.data.classId)
+                    && request.resource.data.studentId == resource.data.studentId
+                    && request.resource.data.classId == resource.data.classId;
+      allow delete: if staffFor(resource.data.classId);
+    }
+
+    // ── School-wide announcements (news ticker) ──────────────
+    match /announcements/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── Class announcements (teacher → students) ─────────────
+    match /classAnnouncements/{id} {
+      allow read: if staffFor(resource.data.classId)
+                  || inClass(resource.data.classId);
+      allow create: if teachesClass(request.resource.data.classId)
+                    && request.resource.data.teacherId == request.auth.uid;
+      allow delete: if staffFor(resource.data.classId);
+    }
+
+    // ── Doubts (student ↔ teacher) ───────────────────────────
+    match /doubts/{doubtId} {
+      allow read: if staffFor(resource.data.classId)
+                  || isSelf(resource.data.studentId);
+      allow create: if isStudent()
+                    && request.resource.data.studentId == request.auth.uid
+                    && request.resource.data.classId == me().classId;
+      // Teachers can only add/edit the reply.
+      allow update: if teachesClass(resource.data.classId)
+                    && onlyChanges(['status', 'reply']);
+      allow delete: if isAdmin();
+    }
+
+    // ── Attendance — doc id is "<classId>_<YYYY-MM-DD>" ──────
+    match /attendance/{docId} {
+      allow read, write: if staffFor(docId.split('_')[0]);
+    }
+
+    // ── Timetables — doc id is the classId ───────────────────
+    match /timetables/{classId} {
+      allow read: if signedIn();
+      allow write: if staffFor(classId);
+    }
+
+    // ── Bus locations ────────────────────────────────────────
+    match /buses/{busId} {
+      allow read: if signedIn();
+      allow write: if isDriver() || isAdmin();
+    }
+
+    // ── Academic calendar & settings ─────────────────────────
+    match /academicCalendar/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /settings/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Everything else is denied by default.
+  }
+}

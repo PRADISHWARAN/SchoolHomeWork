@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { Upload, X, FileUp, Star } from "lucide-react";
 import toast from "react-hot-toast";
 import { downloadFile } from "../utils/downloadFile";
+import { pickFile } from "../utils/pickFile";
 
 const SUBJECT_CONFIG = {
   Mathematics:         { emoji: "🔢", color: "#f59e0b", bg: "#fef3c7" },
@@ -367,9 +368,9 @@ export default function MyHomework() {
                 )}
                 <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>Take a photo of your notebook or upload a PDF</div>
                 <input id="sub-file" type="file" accept=".pdf,.jpg,.jpeg,.png"
-                  style={{ display: "none" }} onChange={e => setSubForm({ ...subForm, file: e.target.files[0] })} />
+                  style={{ display: "none" }} onChange={e => pickFile(e, 10, f => setSubForm({ ...subForm, file: f }))} />
                 <input id="sub-camera" type="file" accept="image/*" capture="environment"
-                  style={{ display: "none" }} onChange={e => setSubForm({ ...subForm, file: e.target.files[0] })} />
+                  style={{ display: "none" }} onChange={e => pickFile(e, 10, f => setSubForm({ ...subForm, file: f }))} />
               </div>
             )}
 

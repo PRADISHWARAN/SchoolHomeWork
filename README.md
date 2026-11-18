@@ -46,11 +46,15 @@ In your Firebase project, enable these 3 things:
 
 **B. Firestore Database**
 - Left sidebar → **Firestore Database** → Create database
-- Select **"Start in test mode"** → Next → Choose any location → Done
+- Select **"Start in production mode"** → Next → Choose any location → Done
 
 **C. Storage**
 - Left sidebar → **Storage** → Get started
-- Select **"Start in test mode"** → Done
+- Select **"Start in production mode"** → Done
+
+> 🔒 The real security rules live in this repo (`firestore.rules` and `storage.rules`).
+> Deploy them with `firebase deploy --only firestore:rules,storage` — never leave
+> the database in "test mode", or anyone on the internet can read and change it.
 
 ### Step 4 — Get Your Firebase Config
 
@@ -149,10 +153,12 @@ Teacher goes to Submissions → sees who submitted what
 ```bash
 npm install -g firebase-tools
 firebase login
-firebase init hosting   (select your project, build folder = "build")
-npm run build
-firebase deploy
+npm --prefix functions install
+firebase deploy --only functions,firestore:rules,storage
 ```
+
+This deploys the Cloud Functions (notifications, reminders, user deletion)
+and the security rules. The website itself is built with `npm run build`.
 
 Your app will be live at: https://your-project-id.web.app
 

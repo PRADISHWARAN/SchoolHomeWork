@@ -7,6 +7,7 @@ import { Plus, Trash2, FileUp, X, BookOpen, Gamepad2, ExternalLink, Calendar, Li
 import toast from "react-hot-toast";
 import HomeworkCalendar from "../components/HomeworkCalendar";
 import { downloadFile } from "../utils/downloadFile";
+import { pickFile } from "../utils/pickFile";
 
 const PLATFORMS = [
   { id: "Scratch",       emoji: "🐱", label: "Scratch"       },
@@ -170,7 +171,12 @@ export default function PostHomework() {
   async function handleDelete(id) {
     if (!window.confirm("Delete this homework? All student submissions for it will also be removed.")) return;
     try {
-      const subSnap = await getDocs(query(collection(db, "submissions"), where("homeworkId", "==", id)));
+      // classId filter is required by the Firestore security rules
+      const subSnap = await getDocs(query(
+        collection(db, "submissions"),
+        where("classId", "==", selectedClassId),
+        where("homeworkId", "==", id)
+      ));
       const batch = writeBatch(db);
       subSnap.docs.forEach(d => batch.delete(d.ref));
       batch.delete(doc(db, "homework", id));
@@ -458,9 +464,9 @@ export default function PostHomework() {
               )}
               <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>PDF, JPG, PNG up to 10MB</div>
               <input id="hw-file" type="file" accept=".pdf,.jpg,.jpeg,.png"
-                style={{ display: "none" }} onChange={e => setForm({ ...form, file: e.target.files[0] })} />
+                style={{ display: "none" }} onChange={e => pickFile(e, 20, f => setForm({ ...form, file: f }))} />
               <input id="hw-camera" type="file" accept="image/*" capture="environment"
-                style={{ display: "none" }} onChange={e => setForm({ ...form, file: e.target.files[0] })} />
+                style={{ display: "none" }} onChange={e => pickFile(e, 20, f => setForm({ ...form, file: f }))} />
             </div>
 
             <div style={{ display: "flex", gap: 12, marginTop: 8 }}>

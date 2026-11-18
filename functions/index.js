@@ -1,5 +1,6 @@
 const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { onSchedule }                           = require("firebase-functions/v2/scheduler");
+const { onCall, HttpsError }                   = require("firebase-functions/v2/https");
 const admin                 = require("firebase-admin");
 
 admin.initializeApp();
@@ -279,4 +280,39 @@ exports.onClassAnnouncementCreated = onDocumentCreated("classAnnouncements/{id}"
     `📢 Announcement from ${ann.teacherName}`,
     body
   );
+});
+
+/* ═══════════════════════════════════════════════════════════
+   CALLABLE — Admin deletes a user: removes BOTH the login
+   (Firebase Auth) and the Firestore profile, so a deleted
+   user can no longer sign in.
+═══════════════════════════════════════════════════════════ */
+exports.deleteUserAccount = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Please sign in.");
+  }
+
+  const caller = await db.collection("users").doc(request.auth.uid).get();
+  if (caller.data()?.role !== "admin") {
+    throw new HttpsError("permission-denied", "Only admins can delete users.");
+  }
+
+  const uid = request.data?.uid;
+  if (typeof uid !== "string" || !uid) {
+    throw new HttpsError("invalid-argument", "A user id is required.");
+  }
+  if (uid === request.auth.uid) {
+    throw new HttpsError("failed-precondition", "You cannot delete your own admin account.");
+  }
+
+  try {
+    await admin.auth().deleteUser(uid);
+  } catch (e) {
+    // Profile without a login (e.g. created by hand) — still remove the profile.
+    if (e.code !== "auth/user-not-found") throw new HttpsError("internal", e.message);
+  }
+  await db.collection("users").doc(uid).delete();
+
+  console.log(`Admin ${request.auth.uid} deleted user ${uid}`);
+  return { ok: true };
 });
