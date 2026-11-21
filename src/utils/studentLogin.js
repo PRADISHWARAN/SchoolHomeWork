@@ -12,6 +12,10 @@
    Twins log in to one twin's account and use "Switch" on the
    dashboard to reach the other (stored in users/{uid}.twins).
    ──────────────────────────────────────────────────────────── */
+import { signOut } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "../firebase/config";
+
 export const STUDENT_DOMAIN = "vaanavilvidyalaya.com";
 
 /** Login emails a student may get, in the order they are assigned. */
@@ -54,9 +58,14 @@ const CREDENTIAL_ERRORS = new Set([
 export async function signInStudent(signIn, phone, dob) {
   const [primary, sibling] = studentLoginEmails(phone, dob);
   try {
-    return await signIn(primary, dob);
+    const cred = await signIn(primary, dob);
+    // A leftover login with no profile (e.g. an old test account) must not
+    // hide the real child's brother/sister login on the same phone.
+    const profile = await getDoc(doc(db, "users", cred.user.uid));
+    if (profile.exists()) return cred;
+    await signOut(auth);
   } catch (e) {
     if (!CREDENTIAL_ERRORS.has(e.code)) throw e;
-    return await signIn(sibling, dob);
   }
+  return await signIn(sibling, dob);
 }
