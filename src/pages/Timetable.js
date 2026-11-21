@@ -34,6 +34,10 @@ export default function Timetable() {
   const [updatedBy, setUpdatedBy] = useState(null);
   const [updatedAt, setUpdatedAt] = useState(null);
 
+  // Phone view shows one day at a time; start on today (Sunday → Monday)
+  const todayName = ["Sunday", ...DAYS][new Date().getDay()];
+  const [selDay, setSelDay] = useState(DAYS.includes(todayName) ? todayName : "Monday");
+
   useEffect(() => {
     if (classId) fetchTimetable();
   }, [classId]);
@@ -136,7 +140,35 @@ export default function Timetable() {
         )}
       </div>
 
-      <div style={{ overflowX: "auto" }}>
+      {/* ── Phone: one day at a time ── */}
+      {!editMode && (
+        <div className="tt-day-view">
+          <div className="tt-day-chips">
+            {DAYS.map(d => (
+              <button key={d} type="button"
+                className={`tt-chip${d === selDay ? " active" : ""}`}
+                onClick={() => setSelDay(d)}>
+                {d.slice(0, 3)}
+                {d === todayName && <span className="tt-today-dot" />}
+              </button>
+            ))}
+          </div>
+          <div className="tt-periods">
+            {PERIODS.map(p => {
+              const subj = days[selDay]?.[p];
+              return (
+                <div key={p} className={`tt-period${subj ? "" : " empty"}`}>
+                  <div className="tt-pnum">P{p}</div>
+                  <div className="tt-psubj">{subj || "Free period"}</div>
+                  <div className="tt-ptime">{periodTimes[p] || "—"}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className={`tt-table-wrap${editMode ? " editing" : ""}`} style={{ overflowX: "auto" }}>
         <table style={styles.table}>
           <thead>
             <tr>

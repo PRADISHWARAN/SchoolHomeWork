@@ -411,12 +411,15 @@ export default function Dashboard() {
                           <div style={{
                             fontWeight: 700, fontSize: 15,
                             color: "#1e1b4b", marginBottom: 2,
-                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                            overflow: "hidden", display: "-webkit-box",
+                            WebkitLineClamp: 2, WebkitBoxOrient: "vertical", wordBreak: "break-word",
                           }}>
                             {hw.title}
                           </div>
                           <div style={{ fontSize: 12, color: "#6b7280" }}>
-                            {hw.subject || "Game"} · Due: {hw.dueDate || "—"}
+                            {hw.subject || "Game"} · Due: {hw.dueDate
+                              ? new Date(hw.dueDate + "T00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+                              : "—"}
                           </div>
                           {/* Mini progress bar */}
                           <div style={{
@@ -641,8 +644,11 @@ function StatCard({ emoji, bg, color, label, value, onClick }) {
 
 function HomeworkRow({ hw, role, onTap, subInfo }) {
   const now        = new Date();
-  const todayStr   = now.toISOString().slice(0, 10);
-  const tomorrowStr = new Date(now.getTime() + 86400000).toISOString().slice(0, 10);
+  // Local (phone) dates — toISOString() would give the UTC date, which is
+  // "yesterday" in India before 5:30 AM.
+  const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const todayStr    = ymd(now);
+  const tomorrowStr = ymd(new Date(now.getTime() + 86400000));
 
   const dueDate    = hw.dueDate
     ? new Date(hw.dueDate + (hw.dueTime ? `T${hw.dueTime}` : "T23:59"))
@@ -681,13 +687,14 @@ function HomeworkRow({ hw, role, onTap, subInfo }) {
       onMouseEnter={e => { if (onTap) e.currentTarget.style.background = isSubmitted ? "#dcfce7" : isDueToday ? "#fee2e2" : isDueTomorrow ? "#fef3c7" : "#f9fafb"; }}
       onMouseLeave={e => { e.currentTarget.style.background = rowBg; }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ flex: "1 1 220px", minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 20, flexShrink: 0 }}>{isGame ? "🎮" : isSubmitted ? "✅" : isDueToday ? "🔴" : isDueTomorrow ? "🟡" : "📝"}</span>
           <div style={{
             fontWeight: 800, fontSize: 15, fontFamily: "'Fredoka One', cursive",
             color: isSubmitted ? "#059669" : isDueToday ? "#dc2626" : isDueTomorrow ? "#d97706" : "inherit",
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            overflow: "hidden", display: "-webkit-box",
+            WebkitLineClamp: 2, WebkitBoxOrient: "vertical", wordBreak: "break-word",
           }}>{hw.title}</div>
         </div>
         <div style={{ color: "#6b7280", fontSize: 13, marginTop: 2 }}>
@@ -703,7 +710,7 @@ function HomeworkRow({ hw, role, onTap, subInfo }) {
           )}
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         {dueDate && (
           <span style={{ fontSize: 12, color: isSubmitted ? "#10b981" : isOverdue ? "#ef4444" : isDueToday ? "#dc2626" : isDueTomorrow ? "#d97706" : "#6b7280" }}>
             📅 {dueDate.toLocaleDateString()}{hw.dueTime && ` · ⏰ ${new Date(`2000-01-01T${hw.dueTime}`).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}

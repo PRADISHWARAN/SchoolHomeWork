@@ -1453,3 +1453,107 @@ button, .btn { font-family: 'Baloo 2', 'Nunito', sans-serif; }
 }
 .doubts-empty-sub { font-size: 13px; color: #9ca3af; }
 
+
+/* ════════════════════════════════════════════════════════════
+   MOBILE POLISH (phones ≤ 768px)
+════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* One fixed top bar: ☰ button on the left, school name on the right.
+     Page content scrolls underneath instead of behind a floating button. */
+  .app-topbar {
+    position: fixed !important;
+    top: 0; left: 0; right: 0;
+    z-index: 1150;
+    height: 60px;
+    margin: 0 !important;
+    padding: 0 14px 0 64px !important;
+    border-radius: 0 !important;
+    border: none !important;
+    border-bottom: 1.5px solid rgba(99,102,241,0.13) !important;
+    background: rgba(255,255,255,0.92) !important;
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .main-content { padding-top: 76px !important; }
+
+  /* Pop-up forms open above the top bar, ☰ button and bottom nav */
+  .modal-overlay { z-index: 1300 !important; }
+  .modal { padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)) !important; }
+
+  /* 16px inputs stop iPhones from zooming in when a field is tapped */
+  input, select, textarea { font-size: 16px !important; }
+
+  /* Bigger tap targets */
+  .btn { min-height: 44px; }
+}
+
+/* Login on phones: compact header so the sign-in form is on the first screen */
+@media (max-width: 768px) {
+  .login-left { padding: 20px 20px 22px !important; align-items: center !important; }
+  .login-logo-img { width: 64px !important; height: 64px !important; }
+  .login-hero-title, .login-hero-sub { display: none !important; }
+  .login-greeting { margin: 6px 0 0 !important; }
+  .login-greeting p:first-child { font-size: 17px !important; }
+  .login-welcome-icon { display: none !important; }
+  .login-form-card { padding-top: 24px !important; }
+}
+
+/* Timetable — day view on phones */
+.tt-day-view { display: none; }
+@media (max-width: 768px) {
+  .tt-day-view { display: block; }
+  .tt-table-wrap:not(.editing) { display: none; }
+  .tt-day-chips {
+    display: flex; gap: 6px; margin-bottom: 14px;
+    overflow-x: auto; scrollbar-width: none; padding-bottom: 2px;
+  }
+  .tt-day-chips::-webkit-scrollbar { display: none; }
+  .tt-chip {
+    flex: 1 0 auto; min-width: 52px; min-height: 44px; position: relative;
+    border: 2px solid #e0e7ff; background: white; color: #4b5563;
+    border-radius: 14px; font: 700 14px 'Poppins', sans-serif; cursor: pointer;
+  }
+  .tt-chip.active {
+    background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white;
+    border-color: transparent; box-shadow: 0 4px 12px rgba(79,70,229,0.3);
+  }
+  .tt-today-dot {
+    position: absolute; top: 5px; right: 6px; width: 7px; height: 7px;
+    border-radius: 50%; background: #f59e0b;
+  }
+  .tt-periods { display: flex; flex-direction: column; gap: 8px; }
+  .tt-period {
+    display: flex; align-items: center; gap: 12px;
+    background: white; border-radius: 14px; padding: 12px 14px;
+    border: 1.5px solid #e0e7ff; box-shadow: 0 2px 8px rgba(79,70,229,0.06);
+  }
+  .tt-period.empty { background: #fafafa; }
+  .tt-pnum {
+    width: 38px; height: 38px; flex-shrink: 0; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    background: #eef2ff; color: #4f46e5; font: 800 13px 'Nunito', sans-serif;
+  }
+  .tt-psubj { flex: 1; min-width: 0; font-weight: 700; font-size: 15px; color: #1e1b4b; }
+  .tt-period.empty .tt-psubj { color: #9ca3af; font-weight: 500; }
+  .tt-ptime { font-size: 12px; color: #6b7280; white-space: nowrap; }
+}
+
+/* Submissions table → one card per submission on phones */
+@media (max-width: 768px) {
+  .sub-table-scroll { overflow: visible !important; }
+  .sub-table-scroll table { min-width: 0 !important; width: 100% !important; }
+  .sub-table-scroll thead { display: none; }
+  .sub-table-scroll table, .sub-table-scroll tbody { display: block; }
+  .sub-table-scroll tr {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+    padding: 14px 16px; border-bottom: 1.5px solid #f0f0ff;
+  }
+  .sub-table-scroll td { display: block; padding: 0 !important; border: none !important; width: auto !important; }
+  .sub-table-scroll td.sub-cell-num { display: none; }
+  .sub-table-scroll td.sub-cell-student { flex: 1 1 100%; }
+  .sub-table-scroll td.sub-cell-hw { flex: 1 1 100%; color: #374151; font-weight: 600; }
+}
+
+/* Odd number of stat cards: the last one fills the row instead of leaving a gap */
+@media (max-width: 768px) {
+  .stat-grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+}

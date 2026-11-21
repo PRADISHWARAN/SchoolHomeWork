@@ -69,8 +69,8 @@ function AppLayout({ children }) {
       <Sidebar />
       <main className="main-content">
 
-        {/* School branding header */}
-        <div style={{
+        {/* School branding header (becomes a fixed top bar on phones) */}
+        <div className="app-topbar" style={{
           display: "flex", alignItems: "center", justifyContent: "flex-end",
           gap: 10, marginBottom: 14,
           padding: "7px 14px 7px 10px",

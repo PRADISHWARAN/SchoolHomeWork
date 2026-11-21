@@ -12,11 +12,11 @@
 // ============================================================
 
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { initializeFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+import { getAuth, connectAuthEmulator } from "firebase/auth";
+import { initializeFirestore, connectFirestoreEmulator } from "firebase/firestore";
+import { getStorage, connectStorageEmulator } from "firebase/storage";
 import { getMessaging } from "firebase/messaging";
-import { getFunctions } from "firebase/functions";
+import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
 
 export const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -35,6 +35,15 @@ export const db      = initializeFirestore(app, {
 });
 export const storage = getStorage(app);
 export const functions = getFunctions(app);
+
+/* Local development: `REACT_APP_USE_EMULATORS=true` in .env.local points the
+   app at the Firebase emulators (see scripts/seed-emulator.js). */
+if (process.env.REACT_APP_USE_EMULATORS === "true") {
+  connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+  connectFirestoreEmulator(db, "127.0.0.1", 8080);
+  connectStorageEmulator(storage, "127.0.0.1", 9199);
+  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+}
 
 let messaging = null;
 try { messaging = getMessaging(app); } catch (e) { console.warn("FCM not available:", e.message); }

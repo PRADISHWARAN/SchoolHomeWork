@@ -462,7 +462,7 @@ export default function PostHomework() {
                   </button>
                 </div>
               )}
-              <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>PDF, JPG, PNG up to 10MB</div>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>PDF, JPG, PNG up to 20 MB</div>
               <input id="hw-file" type="file" accept=".pdf,.jpg,.jpeg,.png"
                 style={{ display: "none" }} onChange={e => pickFile(e, 20, f => setForm({ ...form, file: f }))} />
               <input id="hw-camera" type="file" accept="image/*" capture="environment"

@@ -164,6 +164,19 @@ Your app will be live at: https://your-project-id.web.app
 
 ---
 
+## 🧪 Try It Locally With Fake Data (no real data touched)
+
+```bash
+firebase emulators:start --only auth,firestore,storage --project demo-schooldesk
+node scripts/seed-emulator.js
+```
+
+Then create `.env.local` with `REACT_APP_USE_EMULATORS=true` and
+`REACT_APP_FIREBASE_PROJECT_ID=demo-schooldesk`, and run `npm start`.
+Test logins are listed at the top of `scripts/seed-emulator.js`.
+
+---
+
 ## 📁 Project Structure
 
 ```

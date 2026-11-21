@@ -322,7 +322,7 @@ const styles = {
     padding: 10, cursor: "pointer", color: "white",
     boxShadow: "0 4px 12px rgba(79,70,229,0.4)",
   },
-  mobileOverlay: { display: "none", position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1100 },
+  mobileOverlay: { display: "none", position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1180 }, // above the mobile top bar
   mobileSidebar: { width: 268, height: "100%" },
 };
 

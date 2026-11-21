@@ -252,8 +252,8 @@ export default function Submissions() {
                   <tbody>
                     {filteredSubs.map((sub, i) => (
                       <tr key={sub.id} style={styles.tr}>
-                        <td style={{ ...styles.td, color: "#9ca3af", fontSize: 13, width: 40 }}>{i + 1}</td>
-                        <td style={styles.td}>
+                        <td className="sub-cell-num" style={{ ...styles.td, color: "#9ca3af", fontSize: 13, width: 40 }}>{i + 1}</td>
+                        <td className="sub-cell-student" style={styles.td}>
                           <div
                             style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}
                             onClick={() => {
@@ -415,7 +415,7 @@ export default function Submissions() {
                 <tbody>
                   {submissions.map((sub) => (
                     <tr key={sub.id} style={styles.tr}>
-                      <td style={styles.td}>
+                      <td className="sub-cell-student" style={styles.td}>
                         <div
                           style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}
                           onClick={() => {
@@ -436,7 +436,7 @@ export default function Submissions() {
                           <div style={{ fontWeight: 700, color: "#4f46e5", textDecoration: "underline dotted" }}>{sub.studentName}</div>
                         </div>
                       </td>
-                      <td style={styles.td}>
+                      <td className="sub-cell-hw" style={styles.td}>
                         <div style={{ fontSize: 13 }}>{sub.homeworkTitle}</div>
                       </td>
                       <td style={styles.td}>

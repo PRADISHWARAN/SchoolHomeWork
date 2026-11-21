@@ -164,6 +164,7 @@ export default function Login() {
           {/* School Logo */}
           <div style={{ textAlign: "center", marginBottom: 14 }}>
             <img
+              className="login-logo-img"
               src="/logo.png"
               alt="Vaanavil Vidyalaya"
               style={{
@@ -194,7 +195,7 @@ export default function Login() {
           </div>
 
           {/* Time-based greeting */}
-          <div style={{ textAlign: "center", margin: "14px 0 6px" }}>
+          <div className="login-greeting" style={{ textAlign: "center", margin: "14px 0 6px" }}>
             <p style={{
               color: "#fde68a", fontFamily: "'Fredoka One', cursive",
               fontSize: 20, margin: 0,
@@ -253,7 +254,7 @@ export default function Login() {
 
           {/* Top icon + welcome */}
           <div style={{ textAlign: "center", marginBottom: 20 }}>
-            <div style={{ fontSize: 52, marginBottom: 8, display: "block",
+            <div className="login-welcome-icon" style={{ fontSize: 52, marginBottom: 8, display: "block",
               animation: "float 4s ease-in-out infinite",
             }}>🎓</div>
             <h2 style={{
@@ -305,7 +306,7 @@ export default function Login() {
                   <div style={{ position: "relative" }}>
                     <Phone size={16} style={iconStyle} />
                     <input
-                      type="text"
+                      type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="tel"
                       placeholder="Enter your 10-digit mobile number"
                       value={phone}
                       maxLength={10}
@@ -320,7 +321,7 @@ export default function Login() {
                   <div style={{ position: "relative" }}>
                     <Calendar size={16} style={iconStyle} />
                     <input
-                      type="text"
+                      type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off"
                       placeholder="e.g. 14062003"
                       value={dob}
                       maxLength={8}
