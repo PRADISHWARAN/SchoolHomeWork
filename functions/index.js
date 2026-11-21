@@ -73,11 +73,14 @@ async function sendToTokens(tokens, title, body) {
   }
 }
 
-/* ─── Helper: a student only does homework posted after they joined the class ── */
+/* ─── Helper: a student does homework posted after they joined the class, plus
+       homework that was still open (not past due) when they joined ───────── */
 function studentShouldDo(student, hw) {
   const joined  = student.classJoinedAt?.toMillis?.();
   const created = hw.createdAt?.toMillis?.();
-  return !(joined && created && created < joined);
+  if (!(joined && created && created < joined)) return true;
+  if (!hw.dueDate) return true;
+  return istDateTime(hw.dueDate, hw.dueTime || "23:59").getTime() >= joined;
 }
 
 /* ─── Helper: tokens of students who still owe this homework ── */

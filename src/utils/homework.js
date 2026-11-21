@@ -30,12 +30,15 @@ export function isOverdue(dueDate, dueTime, now = new Date()) {
   return !!due && due < now;
 }
 
-/* A student who joins a class (new admission or class change) only gets the
-   homework posted after they joined — older homework isn't theirs to do. */
+/* A student who joins a class (new admission or class change) gets the homework
+   posted after they joined PLUS any homework that was still open (not past its
+   due date) when they joined. Homework that had already finished isn't theirs. */
 export function canSeeHomework(student, hw) {
   const joined = student?.classJoinedAt?.seconds ?? null;
   if (joined === null) return true;
-  return (hw?.createdAt?.seconds ?? Number.MAX_SAFE_INTEGER) >= joined;
+  if ((hw?.createdAt?.seconds ?? Number.MAX_SAFE_INTEGER) >= joined) return true;
+  const due = dueMoment(hw?.dueDate, hw?.dueTime);
+  return !due || due.getTime() >= joined * 1000;
 }
 
 /**
@@ -51,8 +54,8 @@ export function homeworkProgress(homeworkList, students, submissions) {
   }
   const submitted = {}, total = {}, pendingStudents = {};
   for (const hw of homeworkList) {
-    const expected = students.filter(st => canSeeHomework(st, hw));
     const done = submittedBy[hw.id] || new Set();
+    const expected = students.filter(st => canSeeHomework(st, hw) || done.has(st.id || st.uid));
     total[hw.id] = expected.length;
     submitted[hw.id] = expected.filter(st => done.has(st.id || st.uid)).length;
     pendingStudents[hw.id] = expected.filter(st => !done.has(st.id || st.uid));
