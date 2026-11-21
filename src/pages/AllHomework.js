@@ -5,6 +5,7 @@ import { BookOpen, Trash2, Calendar, List } from "lucide-react";
 import toast from "react-hot-toast";
 import HomeworkCalendar from "../components/HomeworkCalendar";
 import { downloadFile } from "../utils/downloadFile";
+import { homeworkProgress } from "../utils/homework";
 
 const CLASSES = ["Pre-KG-A", "Pre-KG-B", "LKG-A", "LKG-B", "UKG-A", "UKG-B", "1st-A", "1st-B", "2nd-A", "2nd-B", "3rd-A", "3rd-B", "4th-A", "4th-B", "5th-A", "5th-B", "6th-A", "6th-B", "7th-A", "7th-B", "8th-A", "8th-B", "9th-A", "9th-B", "10th-A", "10th-B"];
 
@@ -13,8 +14,9 @@ export default function AllHomework() {
   const [loading, setLoading]             = useState(true);
   const [filter, setFilter]               = useState("LKG-A");
   const [viewMode, setViewMode]           = useState("list");   // "list" | "calendar"
-  const [submissionsMap, setSubmissionsMap] = useState({});       // { hwId: count }
-  const [classStudentCounts, setClassStudentCounts] = useState({}); // { classId: count }
+  const [submissionsMap, setSubmissionsMap] = useState({});       // { hwId: students who submitted }
+  const [classStudentCounts, setClassStudentCounts] = useState({}); // { hwId: students who should do it }
+  const [enrolled, setEnrolled] = useState({});                      // { classId: students in class now }
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -27,25 +29,29 @@ export default function AllHomework() {
       hw.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setHomeworkList(hw);
 
-      /* 2. Submissions map: { hwId → count } */
-      const subSnap = await getDocs(collection(db, "submissions"));
-      const smap = {};
-      subSnap.docs.forEach(d => {
-        const hwId = d.data().homeworkId;
-        if (hwId) smap[hwId] = (smap[hwId] || 0) + 1;
-      });
-      setSubmissionsMap(smap);
-
-      /* 3. Student counts per class: { classId → count } */
-      const stuSnap = await getDocs(
-        query(collection(db, "users"), where("role", "==", "student"))
-      );
-      const counts = {};
-      stuSnap.docs.forEach(d => {
-        const cid = d.data().classId;
-        if (cid) counts[cid] = (counts[cid] || 0) + 1;
-      });
-      setClassStudentCounts(counts);
+      /* 2. Progress per homework — each student counted once, only students
+            who were in that class when the homework was posted */
+      const [subSnap, stuSnap] = await Promise.all([
+        getDocs(collection(db, "submissions")),
+        getDocs(query(collection(db, "users"), where("role", "==", "student"))),
+      ]);
+      const students = stuSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const subs     = subSnap.docs.map(d => d.data());
+      const submitted = {}, totals = {};
+      for (const cid of new Set(hw.map(h => h.classId))) {
+        const p = homeworkProgress(
+          hw.filter(h => h.classId === cid),
+          students.filter(s => s.classId === cid),
+          subs.filter(s => s.classId === cid),
+        );
+        Object.assign(submitted, p.submitted);
+        Object.assign(totals, p.total);
+      }
+      setSubmissionsMap(submitted);
+      setClassStudentCounts(totals);
+      const perClass = {};
+      students.forEach(s => { if (s.classId) perClass[s.classId] = (perClass[s.classId] || 0) + 1; });
+      setEnrolled(perClass);
 
     } catch {
       toast.error("Failed to load");
@@ -70,8 +76,8 @@ export default function AllHomework() {
 
   if (loading) return <div className="loader"><div className="spinner" /><span>Loading...</span></div>;
 
-  /* For calendar: when a specific class is selected, pass that student count */
-  const calTotalStudents = classStudentCounts[filter] || 0;
+  /* For calendar: expected students per homework */
+  const calTotalStudents = classStudentCounts;
 
   return (
     <div>
@@ -179,7 +185,7 @@ export default function AllHomework() {
             background: "#f8faff", borderRadius: 10, padding: "10px 14px",
             border: "1px solid #e0e7ff",
           }}>
-            {`📋 Class ${filter} · ${calTotalStudents} students enrolled`}
+            {`📋 Class ${filter} · ${enrolled[filter] || 0} students enrolled`}
           </div>
 
           <HomeworkCalendar

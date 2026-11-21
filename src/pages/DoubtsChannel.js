@@ -7,6 +7,8 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "../firebase/config";
 import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
+import { useTeacherClass } from "../hooks/useTeacherClass";
+import ClassPicker from "../components/ClassPicker";
 
 /* ── helpers ─────────────────────────────────────────────── */
 function fmtTime(ts) {
@@ -28,8 +30,11 @@ function AudioPlayer({ url, label = "Play" }) {
   function toggle() {
     const a = audioRef.current;
     if (!a) return;
-    playing ? a.pause() : a.play();
+    if (playing) a.pause();
+    else a.play()?.catch(() => toast.error("Couldn't play this recording"));
   }
+
+  if (!url) return null;   // text-only doubt / reply: no "Listen" button
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -62,34 +67,59 @@ function useRecorder() {
   const [audioBlob, setAudioBlob] = useState(null);
   const [audioURL,  setAudioURL]  = useState(null);
   const [seconds,   setSeconds]   = useState(0);
-  const mediaRef  = useRef(null);
-  const chunksRef = useRef([]);
-  const timerRef  = useRef(null);
+  const mediaRef   = useRef(null);
+  const streamRef  = useRef(null);
+  const chunksRef  = useRef([]);
+  const timerRef   = useRef(null);
+  const discardRef = useRef(false);   // recording was cancelled → don't show it
+  const urlRef     = useRef(null);
+
+  function releaseMic() {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+  }
+
+  function setPreview(blob) {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    urlRef.current = blob ? URL.createObjectURL(blob) : null;
+    setAudioBlob(blob);
+    setAudioURL(urlRef.current);
+  }
+
+  // Leaving the page while recording: stop and switch the microphone off
+  useEffect(() => () => {
+    discardRef.current = true;
+    clearInterval(timerRef.current);
+    if (mediaRef.current && mediaRef.current.state !== "inactive") mediaRef.current.stop();
+    releaseMic();
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+  }, []);
 
   async function start() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Detect best supported MIME type (iOS Safari needs audio/mp4)
+      streamRef.current = stream;
       const mimeType =
         MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" :
         MediaRecorder.isTypeSupported("audio/mp4")  ? "audio/mp4"  :
         MediaRecorder.isTypeSupported("audio/ogg")  ? "audio/ogg"  : "";
-      const recorderOpts = mimeType ? { mimeType } : {};
-      const recorder = new MediaRecorder(stream, recorderOpts);
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
       chunksRef.current = [];
+      discardRef.current = false;
       recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType || "audio/webm" });
-        setAudioBlob(blob);
-        setAudioURL(URL.createObjectURL(blob));
-        stream.getTracks().forEach(t => t.stop());
+        releaseMic();
+        if (discardRef.current) return;
+        setPreview(new Blob(chunksRef.current, { type: mimeType || "audio/webm" }));
       };
       recorder.start();
       mediaRef.current = recorder;
       setRecording(true);
       setSeconds(0);
+      clearInterval(timerRef.current);
       timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000);
     } catch (err) {
+      releaseMic();
       if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
         toast.error("Microphone permission denied. Please allow microphone access.");
       } else {
@@ -105,9 +135,9 @@ function useRecorder() {
   }
 
   function reset() {
+    discardRef.current = true;   // a recording still running is thrown away
     stop();
-    setAudioBlob(null);
-    setAudioURL(null);
+    setPreview(null);
     setSeconds(0);
   }
 
@@ -211,18 +241,19 @@ function RecorderUI({ rec, size = "normal" }) {
 /* ═══════════════════════════════════════════════════════════
    TEACHER — ANNOUNCE TAB
 ═══════════════════════════════════════════════════════════ */
-function AnnounceTab({ userProfile }) {
+function AnnounceTab({ userProfile, teacherClass }) {
   const rec = useRecorder();
   const [text, setText]           = useState("");
   const [sending, setSending]     = useState(false);
   const [announcements, setAnn]   = useState([]);
+  const classId = teacherClass.classId;
 
   useEffect(() => {
-    if (!userProfile?.classId) return;
-    const q = query(collection(db, "classAnnouncements"), where("classId", "==", userProfile.classId));
+    if (!classId) return;
+    const q = query(collection(db, "classAnnouncements"), where("classId", "==", classId));
     return onSnapshot(q, snap => setAnn(sortDesc(snap.docs.map(d => ({ id: d.id, ...d.data() })))),
       err => toast.error("Load error: " + err.message));
-  }, [userProfile?.classId]);
+  }, [classId]);
 
   async function sendAnnouncement() {
     if (!rec.audioBlob && !text.trim()) {
@@ -233,13 +264,14 @@ function AnnounceTab({ userProfile }) {
     try {
       let audioUrl = null;
       if (rec.audioBlob) {
-        const path = `announcements/${userProfile.classId}_${Date.now()}.webm`;
+        const ext  = rec.audioBlob.type.includes("mp4") ? "mp4" : rec.audioBlob.type.includes("ogg") ? "ogg" : "webm";
+        const path = `announcements/${classId}_${Date.now()}.${ext}`;
         const sRef = ref(storage, path);
         await uploadBytes(sRef, rec.audioBlob);
         audioUrl = await getDownloadURL(sRef);
       }
       await addDoc(collection(db, "classAnnouncements"), {
-        classId:     userProfile.classId,
+        classId,
         teacherId:   userProfile.uid,
         teacherName: userProfile.name || "Teacher",
         text:        text.trim(),
@@ -257,6 +289,7 @@ function AnnounceTab({ userProfile }) {
   }
 
   async function deleteAnn(id) {
+    if (!window.confirm("Delete this announcement? Students will no longer see it.")) return;
     try {
       await deleteDoc(doc(db, "classAnnouncements", id));
       toast.success("Announcement deleted.");
@@ -265,8 +298,14 @@ function AnnounceTab({ userProfile }) {
     }
   }
 
+  if (!classId) return <div style={emptyBox}>No classes with students yet.</div>;
+
   return (
     <div>
+      {teacherClass.isCommon && (
+        <ClassPicker classes={teacherClass.classes} value={classId} onChange={teacherClass.setClassId} label="Send to class" />
+      )}
+
       {/* Compose card */}
       <div style={card}>
         <div style={{ fontFamily: "'Fredoka One', cursive", fontSize: 18, color: "#7c3aed", marginBottom: 6 }}>
@@ -342,7 +381,7 @@ function AnnounceTab({ userProfile }) {
 /* ═══════════════════════════════════════════════════════════
    TEACHER — DOUBTS TAB
 ═══════════════════════════════════════════════════════════ */
-function DoubtsTab({ userProfile }) {
+function DoubtsTab({ userProfile, teacherClass }) {
   const [doubts, setDoubts]         = useState([]);
   const [loading, setLoading]       = useState(true);
   const [activeId, setActiveId]     = useState(null);
@@ -352,26 +391,37 @@ function DoubtsTab({ userProfile }) {
   const [replying, setReplying]     = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
+  const isCommon = teacherClass.isCommon;
+  const myClass  = teacherClass.classId;
+
   useEffect(() => {
-    if (!userProfile?.classId) return;
-    const q = query(collection(db, "doubts"), where("classId", "==", userProfile.classId));
+    // "All classes" teachers see doubts from every class
+    if (!isCommon && !myClass) return;
+    const q = isCommon
+      ? query(collection(db, "doubts"))
+      : query(collection(db, "doubts"), where("classId", "==", myClass));
     return onSnapshot(q, snap => {
       setDoubts(sortDesc(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
       setLoading(false);
     }, err => { toast.error("Could not load doubts: " + err.message); setLoading(false); });
-  }, [userProfile?.classId]);
+  }, [isCommon, myClass]);
 
-  function openReply(id) { setActiveId(id); setReplyText(""); rec.reset(); }
+  function openReply(id) {
+    const existing = doubts.find(d => d.id === id);
+    setActiveId(id);
+    setReplyText(existing?.reply?.text || "");   // editing starts from the old reply
+    rec.reset();
+  }
 
   async function sendReply(doubtId) {
-    if (!replyText.trim() && !rec.audioBlob) {
+    const existingDoubt = doubts.find(d => d.id === doubtId);
+    if (!replyText.trim() && !rec.audioBlob && !existingDoubt?.reply?.audioUrl) {
       toast.error("Please type a reply or record a voice reply.");
       return;
     }
     setReplying(true);
     try {
       // Preserve existing voice reply if teacher only edits the text (no new recording)
-      const existingDoubt = doubts.find(d => d.id === doubtId);
       let replyAudioUrl = existingDoubt?.reply?.audioUrl || null;
       if (rec.audioBlob) {
         const ext = rec.audioBlob.type.includes("mp4") ? "mp4" : "webm";
@@ -463,7 +513,10 @@ function DoubtsTab({ userProfile }) {
                 {d.studentName?.[0]?.toUpperCase() || "S"}
               </div>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{d.studentName}</div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>
+                  {d.studentName}
+                  {isCommon && <span style={{ fontWeight: 600, color: "#6b7280", fontSize: 12 }}> · Class {d.classId}</span>}
+                </div>
                 <div style={{ fontSize: 11, color: "#9ca3af" }}>{fmtTime(d.createdAt)}</div>
               </div>
             </div>
@@ -541,6 +594,7 @@ function DoubtsTab({ userProfile }) {
 ═══════════════════════════════════════════════════════════ */
 function TeacherView({ userProfile }) {
   const [tab, setTab] = useState("doubts");
+  const teacherClass = useTeacherClass(userProfile);
 
   return (
     <div style={{ maxWidth: 750, margin: "0 auto" }}>
@@ -565,8 +619,8 @@ function TeacherView({ userProfile }) {
         ))}
       </div>
 
-      {tab === "doubts"   && <DoubtsTab   userProfile={userProfile} />}
-      {tab === "announce" && <AnnounceTab userProfile={userProfile} />}
+      {tab === "doubts"   && <DoubtsTab   userProfile={userProfile} teacherClass={teacherClass} />}
+      {tab === "announce" && <AnnounceTab userProfile={userProfile} teacherClass={teacherClass} />}
     </div>
   );
 }

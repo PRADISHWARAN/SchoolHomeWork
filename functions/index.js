@@ -1,4 +1,4 @@
-const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
 const { onSchedule }                           = require("firebase-functions/v2/scheduler");
 const { onCall, HttpsError }                   = require("firebase-functions/v2/https");
 const admin                 = require("firebase-admin");
@@ -8,13 +8,20 @@ admin.initializeApp();
 const db        = admin.firestore();
 const messaging = admin.messaging();
 
-/* ─── Helper: FCM tokens for all students in a class ──────── */
-async function getStudentTokens(classId) {
+const STUDENT_DOMAIN = "vaanavilvidyalaya.com";
+
+/* ─── Helper: students of a class (full docs) ──────────────── */
+async function studentsOf(classId) {
   const snap = await db.collection("users")
     .where("role",    "==", "student")
     .where("classId", "==", classId)
     .get();
-  return snap.docs.map(d => d.data().fcmToken).filter(Boolean);
+  return snap.docs;
+}
+
+/* ─── Helper: FCM tokens for all students in a class ──────── */
+async function getStudentTokens(classId) {
+  return (await studentsOf(classId)).map(d => d.data().fcmToken).filter(Boolean);
 }
 
 /* ─── Helper: FCM tokens for ALL users in the school ──────── */
@@ -23,11 +30,11 @@ async function getAllTokens() {
   return snap.docs.map(d => d.data().fcmToken).filter(Boolean);
 }
 
-/* ─── Helper: FCM tokens for teacher(s) of a class ─────────── */
+/* ─── Helper: FCM tokens for the class teacher(s) + "All classes" teachers ── */
 async function getTeacherTokens(classId) {
   const snap = await db.collection("users")
     .where("role",    "==", "teacher")
-    .where("classId", "==", classId)
+    .where("classId", "in", [classId, "ALL"])
     .get();
   return snap.docs.map(d => d.data().fcmToken).filter(Boolean);
 }
@@ -41,6 +48,9 @@ async function getTokenByUid(uid) {
 
 /* ─── Helper: send to a list of tokens (chunks of 500) ──────── */
 async function sendToTokens(tokens, title, body) {
+  // Brothers, sisters and twins often share one phone → the same device token
+  // is saved on several accounts. Send each message only once per device.
+  tokens = [...new Set(tokens.filter(Boolean))];
   if (!tokens.length) return;
   // FCM multicast limit is 500 per call
   const chunks = [];
@@ -61,6 +71,23 @@ async function sendToTokens(tokens, title, body) {
       console.error("sendToTokens error:", e);
     }
   }
+}
+
+/* ─── Helper: a student only does homework posted after they joined the class ── */
+function studentShouldDo(student, hw) {
+  const joined  = student.classJoinedAt?.toMillis?.();
+  const created = hw.createdAt?.toMillis?.();
+  return !(joined && created && created < joined);
+}
+
+/* ─── Helper: tokens of students who still owe this homework ── */
+async function pendingStudentTokens(hwId, hw) {
+  const subSnap = await db.collection("submissions").where("homeworkId", "==", hwId).get();
+  const submittedIds = new Set(subSnap.docs.map(d => d.data().studentId));
+  return (await studentsOf(hw.classId))
+    .filter(d => !submittedIds.has(d.id) && studentShouldDo(d.data(), hw))
+    .map(d => d.data().fcmToken)
+    .filter(Boolean);
 }
 
 /* ─── Helpers: school time zone (IST, UTC+05:30, no DST) ─────
@@ -87,6 +114,48 @@ function fmtTime(timeStr) {
   return `${hour}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
+function shorten(text, max) {
+  return text.length > max ? text.slice(0, max - 3) + "..." : text;
+}
+
+/* ─── Helpers: delete uploaded files when their record is deleted ── */
+function storagePathFromUrl(url) {
+  // https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<encoded path>?alt=media&token=…
+  const m = /\/o\/([^?#]+)/.exec(url || "");
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+async function deleteFiles(urls) {
+  const bucket = admin.storage().bucket();
+  for (const path of new Set(urls.map(storagePathFromUrl).filter(Boolean))) {
+    try {
+      await bucket.file(path).delete();
+      console.log("Deleted file", path);
+    } catch (e) {
+      if (e.code !== 404) console.warn("Could not delete file", path, e.message);
+    }
+  }
+}
+
+/* ─── Helper: twins (same phone AND date of birth) list each other,
+       so the dashboard can show "Switch to …" ─────────────────────── */
+async function relinkTwins(phone, dob) {
+  if (!phone || !dob) return;
+  const snap  = await db.collection("users").where("phone", "==", phone).get();
+  const group = snap.docs.filter(d => d.data().role === "student" && d.data().dob === dob);
+  await Promise.all(group.map(d => d.ref.update({
+    twins: group.filter(o => o.id !== d.id).map(o => ({ name: o.data().name, email: o.data().email })),
+  })));
+}
+
+async function requireAdmin(request) {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Please sign in.");
+  const caller = await db.collection("users").doc(request.auth.uid).get();
+  if (caller.data()?.role !== "admin") {
+    throw new HttpsError("permission-denied", "Only admins can do this.");
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════
    TRIGGER 1 — Teacher posts homework → students in class notified
 ═══════════════════════════════════════════════════════════ */
@@ -95,7 +164,12 @@ exports.onHomeworkCreated = onDocumentCreated("homework/{hwId}", async (event) =
   if (!hw?.classId) return;
 
   // Mark this doc so the 3-hour reminder knows it hasn't been sent yet
-  await event.data.ref.update({ reminderSent3h: false });
+  try {
+    await event.data.ref.update({ reminderSent3h: false });
+  } catch (e) {
+    if (e.code === 5) return;   // NOT_FOUND: the homework was deleted straight away
+    throw e;
+  }
 
   const tokens  = await getStudentTokens(hw.classId);
   const subject = hw.subject || hw.gamePlatform || "Homework";
@@ -118,11 +192,7 @@ exports.onAnnouncementCreated = onDocumentCreated("announcements/{id}", async (e
   if (!text) return;
 
   const tokens = await getAllTokens();
-  await sendToTokens(
-    tokens,
-    "📢 School Announcement",
-    text.length > 120 ? text.slice(0, 117) + "..." : text
-  );
+  await sendToTokens(tokens, "📢 School Announcement", shorten(text, 120));
 });
 
 /* ═══════════════════════════════════════════════════════════
@@ -145,21 +215,8 @@ exports.dailyDueReminder = onSchedule(
       // Skip homework that has a specific dueTime — the 3-hour reminder handles those
       if (hw.dueTime) continue;
 
-      const subSnap = await db.collection("submissions")
-        .where("homeworkId", "==", hwDoc.id).get();
-      const submittedIds = new Set(subSnap.docs.map(d => d.data().studentId));
-
-      const stuSnap = await db.collection("users")
-        .where("role",    "==", "student")
-        .where("classId", "==", hw.classId).get();
-
-      const pendingTokens = stuSnap.docs
-        .filter(d => !submittedIds.has(d.id))
-        .map(d => d.data().fcmToken)
-        .filter(Boolean);
-
       await sendToTokens(
-        pendingTokens,
+        await pendingStudentTokens(hwDoc.id, hw),
         `⏰ Due Today: ${hw.title}`,
         `${hw.subject || "Homework"} is due today — submit before it's too late!`
       );
@@ -194,34 +251,16 @@ exports.threeHourDueReminder = onSchedule(
 
         // Build the exact due datetime (dueTime is IST, server is UTC)
         const dueDateTime   = istDateTime(hw.dueDate, hw.dueTime);
-        const msUntilDue    = dueDateTime - now;
-        const hoursUntilDue = msUntilDue / (1000 * 60 * 60);
+        const hoursUntilDue = (dueDateTime - now) / (1000 * 60 * 60);
 
         // Only fire when due is within the next 0–3 hours
         if (hoursUntilDue < 0 || hoursUntilDue > 3) continue;
 
-        // Find students in this class who haven't submitted yet
-        const subSnap = await db.collection("submissions")
-          .where("homeworkId", "==", hwDoc.id).get();
-        const submittedIds = new Set(subSnap.docs.map(d => d.data().studentId));
-
-        const stuSnap = await db.collection("users")
-          .where("role",    "==", "student")
-          .where("classId", "==", hw.classId).get();
-
-        const pendingTokens = stuSnap.docs
-          .filter(d => !submittedIds.has(d.id))
-          .map(d => d.data().fcmToken)
-          .filter(Boolean);
-
-        if (pendingTokens.length > 0) {
-          const timeLabel = fmtTime(hw.dueTime);
-          await sendToTokens(
-            pendingTokens,
-            `⚠️ Less Than 3 Hours Left! — ${hw.title}`,
-            `${hw.subject || "Homework"} is due at ${timeLabel}. Submit now before the deadline!`
-          );
-        }
+        await sendToTokens(
+          await pendingStudentTokens(hwDoc.id, hw),
+          `⚠️ Less Than 3 Hours Left! — ${hw.title}`,
+          `${hw.subject || "Homework"} is due at ${fmtTime(hw.dueTime)}. Submit now before the deadline!`
+        );
 
         // Mark reminder as sent so we don't fire again
         await hwDoc.ref.update({ reminderSent3h: true });
@@ -231,17 +270,20 @@ exports.threeHourDueReminder = onSchedule(
 );
 
 /* ═══════════════════════════════════════════════════════════
-   TRIGGER 5 — Student posts a voice doubt → teacher notified
+   TRIGGER 5 — Student posts a doubt → class teacher(s) notified
 ═══════════════════════════════════════════════════════════ */
 exports.onDoubtCreated = onDocumentCreated("doubts/{doubtId}", async (event) => {
   const doubt = event.data?.data();
   if (!doubt?.classId) return;
 
   const tokens = await getTeacherTokens(doubt.classId);
+  const isVoice = !!doubt.audioUrl;
   await sendToTokens(
     tokens,
-    `🎙️ New Voice Doubt — ${doubt.studentName}`,
-    `${doubt.studentName} (Class ${doubt.classId}) posted a voice doubt. Tap to listen & reply.`
+    `${isVoice ? "🎙️ New Voice Doubt" : "❓ New Doubt"} — ${doubt.studentName}`,
+    isVoice
+      ? `${doubt.studentName} (Class ${doubt.classId}) posted a voice doubt. Tap to listen & reply.`
+      : `${doubt.studentName} (Class ${doubt.classId}): ${shorten(doubt.text || "", 90)}`
   );
 });
 
@@ -259,7 +301,9 @@ exports.onDoubtReplied = onDocumentUpdated("doubts/{doubtId}", async (event) => 
   await sendToTokens(
     tokens,
     `✅ Your Doubt Was Answered!`,
-    `${after.reply.teacherName} replied to your voice doubt. Tap to listen!`
+    after.reply.audioUrl
+      ? `${after.reply.teacherName} replied to your doubt. Tap to listen!`
+      : `${after.reply.teacherName}: ${shorten(after.reply.text || "", 100)}`
   );
 });
 
@@ -272,30 +316,63 @@ exports.onClassAnnouncementCreated = onDocumentCreated("classAnnouncements/{id}"
 
   const tokens = await getStudentTokens(ann.classId);
   const body   = ann.text
-    ? (ann.text.length > 110 ? ann.text.slice(0, 107) + "..." : ann.text)
+    ? shorten(ann.text, 110)
     : `${ann.teacherName} sent a voice announcement. Tap to listen!`;
 
-  await sendToTokens(
-    tokens,
-    `📢 Announcement from ${ann.teacherName}`,
-    body
-  );
+  await sendToTokens(tokens, `📢 Announcement from ${ann.teacherName}`, body);
+});
+
+/* ═══════════════════════════════════════════════════════════
+   CLEAN-UP — when a record is deleted, delete its uploaded files
+   (and, for homework / students, the records that belong to them)
+═══════════════════════════════════════════════════════════ */
+exports.onSubmissionDeleted = onDocumentDeleted("submissions/{id}", async (event) => {
+  const s = event.data?.data();
+  if (!s) return;
+  await deleteFiles([...(s.files || []).map(f => f.url), s.fileUrl]);
+});
+
+exports.onHomeworkDeleted = onDocumentDeleted("homework/{id}", async (event) => {
+  const hw = event.data?.data();
+  if (!hw) return;
+  await deleteFiles([hw.fileUrl]);
+  // The app already deletes the submissions; this also covers deletes made elsewhere
+  const subs = await db.collection("submissions").where("homeworkId", "==", event.params.id).get();
+  await Promise.all(subs.docs.map(d => d.ref.delete()));   // each one removes its own files
+});
+
+exports.onClassAnnouncementDeleted = onDocumentDeleted("classAnnouncements/{id}", async (event) => {
+  const ann = event.data?.data();
+  if (ann) await deleteFiles([ann.audioUrl]);
+});
+
+exports.onDoubtDeleted = onDocumentDeleted("doubts/{id}", async (event) => {
+  const d = event.data?.data();
+  if (d) await deleteFiles([d.audioUrl, d.reply?.audioUrl]);
+});
+
+exports.onUserDeleted = onDocumentDeleted("users/{uid}", async (event) => {
+  const u = event.data?.data();
+  if (!u) return;
+  const uid = event.params.uid;
+  await deleteFiles([u.photoURL]);
+  if (u.role !== "student") return;
+  // A removed student's homework and doubts go too (each removes its own files)
+  const [subs, doubts] = await Promise.all([
+    db.collection("submissions").where("studentId", "==", uid).get(),
+    db.collection("doubts").where("studentId", "==", uid).get(),
+  ]);
+  await Promise.all([...subs.docs, ...doubts.docs].map(d => d.ref.delete()));
+  await relinkTwins(u.phone, u.dob);   // the remaining twin loses the "Switch" button
 });
 
 /* ═══════════════════════════════════════════════════════════
    CALLABLE — Admin deletes a user: removes BOTH the login
    (Firebase Auth) and the Firestore profile, so a deleted
-   user can no longer sign in.
+   user can no longer sign in. onUserDeleted cleans up the rest.
 ═══════════════════════════════════════════════════════════ */
 exports.deleteUserAccount = onCall(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Please sign in.");
-  }
-
-  const caller = await db.collection("users").doc(request.auth.uid).get();
-  if (caller.data()?.role !== "admin") {
-    throw new HttpsError("permission-denied", "Only admins can delete users.");
-  }
+  await requireAdmin(request);
 
   const uid = request.data?.uid;
   if (typeof uid !== "string" || !uid) {
@@ -315,4 +392,60 @@ exports.deleteUserAccount = onCall(async (request) => {
 
   console.log(`Admin ${request.auth.uid} deleted user ${uid}`);
   return { ok: true };
+});
+
+/* ═══════════════════════════════════════════════════════════
+   CALLABLE — Admin corrects a student's phone number and/or date
+   of birth. These are the login (phone + DOB), so the Auth account
+   is updated too — the student keeps all their homework history.
+═══════════════════════════════════════════════════════════ */
+function isRealDob(dob) {
+  if (!/^\d{8}$/.test(dob)) return false;
+  const d = +dob.slice(0, 2), m = +dob.slice(2, 4), y = +dob.slice(4);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d
+      && y >= 1990 && date <= new Date();
+}
+
+exports.updateStudentLogin = onCall(async (request) => {
+  await requireAdmin(request);
+
+  const { uid, phone, dob } = request.data || {};
+  if (typeof uid !== "string" || !uid) throw new HttpsError("invalid-argument", "A user id is required.");
+  if (!/^[6-9]\d{9}$/.test(phone || "")) throw new HttpsError("invalid-argument", "Phone number must be 10 digits.");
+  if (!isRealDob(dob || "")) throw new HttpsError("invalid-argument", "Date of birth must be a real date (DDMMYYYY).");
+
+  const ref  = db.collection("users").doc(uid);
+  const snap = await ref.get();
+  const user = snap.data();
+  if (!user || user.role !== "student") throw new HttpsError("not-found", "Student not found.");
+
+  // Same login scheme as the app: phone@ → phone_DOB@ (brother/sister) → phone_DOB_2@ (twins)
+  const candidates = [
+    `${phone}@${STUDENT_DOMAIN}`,
+    `${phone}_${dob}@${STUDENT_DOMAIN}`,
+    `${phone}_${dob}_2@${STUDENT_DOMAIN}`,
+    `${phone}_${dob}_3@${STUDENT_DOMAIN}`,
+  ];
+  let email = null;
+  for (const candidate of candidates) {
+    if (candidate === user.email) { email = candidate; break; }
+    try {
+      await admin.auth().getUserByEmail(candidate);   // taken by another child
+    } catch (e) {
+      if (e.code === "auth/user-not-found") { email = candidate; break; }
+      throw new HttpsError("internal", e.message);
+    }
+  }
+  if (!email) throw new HttpsError("already-exists", "Too many children already use this phone and date of birth.");
+
+  await admin.auth().updateUser(uid, { email, password: dob });
+  await ref.update({ phone, dob, email });
+
+  // Twin links for the old and the new phone + DOB
+  await relinkTwins(user.phone, user.dob);
+  await relinkTwins(phone, dob);
+
+  console.log(`Admin ${request.auth.uid} changed login of ${uid}`);
+  return { email };
 });

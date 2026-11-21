@@ -9,6 +9,7 @@ import { db, storage } from "../firebase/config";
 import { useAuth } from "../context/AuthContext";
 import { Plus, Trash2, Calendar, X, Upload, FileText, Download, Eye } from "lucide-react";
 import toast from "react-hot-toast";
+import { localYMD } from "../utils/homework";
 
 const EVENT_TYPES = [
   { value: "holiday", label: "Holiday",      emoji: "🏖️", color: "#fef3c7", text: "#92400e" },
@@ -127,7 +128,7 @@ export default function AcademicCalendar() {
     } catch { toast.error("Failed"); }
   }
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = localYMD();   // phone's date (toISOString gave the UTC date)
   const upcoming = events.filter(e => e.date >= today);
   const past = events.filter(e => e.date < today);
 

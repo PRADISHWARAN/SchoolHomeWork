@@ -23,13 +23,30 @@ import DoubtsChannel from "./pages/DoubtsChannel";
 import "./styles/global.css";
 
 /* ── Holiday detection ──────────────────────────────────── */
+// Diwali and Holi follow the lunar calendar, so their date moves every year.
+// Add the next years' dates (MM-DD) here; years not listed simply show no banner.
+const DIWALI = { 2025: "10-20", 2026: "11-08", 2027: "10-29", 2028: "10-17", 2029: "11-05", 2030: "10-26" };
+const HOLI   = { 2026: "03-04", 2027: "03-22", 2028: "03-11", 2029: "03-01", 2030: "03-20" };
+
+/** Is `d` within `before` days before / `after` days after this year's festival? */
+function nearFestival(table, d, before, after) {
+  const mmdd = table[d.getFullYear()];
+  if (!mmdd) return false;
+  const [m, day] = mmdd.split("-").map(Number);
+  const festival = new Date(d.getFullYear(), m - 1, day);
+  const today    = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff     = Math.round((today - festival) / 86400000);
+  return diff >= -before && diff <= after;
+}
+
 function getHoliday() {
   const d  = new Date();
   const md = (d.getMonth() + 1) * 100 + d.getDate();
-  if (md >= 1019 && md <= 1105) return { emoji: "🪔", msg: "Happy Diwali! May your learning shine as bright as these lights!", color: "#d97706", bg: "#fffbeb" };
+  if (nearFestival(DIWALI, d, 4, 2)) return { emoji: "🪔", msg: "Happy Diwali! May your learning shine as bright as these lights!", color: "#d97706", bg: "#fffbeb" };
+  if (nearFestival(HOLI,   d, 2, 1)) return { emoji: "🎨", msg: "Happy Holi! Colour up your knowledge and have a blast!", color: "#ec4899", bg: "#fff0f8" };
+  if (md >= 113  && md <= 117)  return { emoji: "🌾", msg: "Happy Pongal! Pongalo Pongal — wishing you a sweet harvest of learning!", color: "#ca8a04", bg: "#fefce8" };
   if (md >= 1215 && md <= 1226) return { emoji: "🎄", msg: "Merry Christmas! Keep learning and stay curious this holiday!", color: "#16a34a", bg: "#f0fff4" };
   if (md >= 1227 || md <= 105)  return { emoji: "🎆", msg: "Happy New Year! New year, new goals, new achievements!", color: "#7c3aed", bg: "#f5f0ff" };
-  if (md >= 301  && md <= 315)  return { emoji: "🎨", msg: "Happy Holi! Colour up your knowledge and have a blast!", color: "#ec4899", bg: "#fff0f8" };
   if (md >= 815  && md <= 818)  return { emoji: "🇮🇳", msg: "Happy Independence Day! Be proud, be curious, be Indian!", color: "#f59e0b", bg: "#fffbeb" };
   if (md >= 1101 && md <= 1114) return { emoji: "🎉", msg: "Happy Children's Day! You are the future — keep shining!", color: "#0891b2", bg: "#f0fbff" };
   if (md >= 601  && md <= 615)  return { emoji: "🎒", msg: "Welcome back to school! Let's make this year absolutely amazing!", color: "#6366f1", bg: "#e0e7ff" };

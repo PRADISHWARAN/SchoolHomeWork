@@ -4,10 +4,13 @@ import { useTheme } from "../context/ThemeContext";
 import {
   collection, query, where, getDocs,
   addDoc, serverTimestamp,
-  getCountFromServer, orderBy, limit,
+  getCountFromServer, orderBy, limit, onSnapshot, deleteDoc, doc,
 } from "firebase/firestore";
 import { db, auth } from "../firebase/config";
 import { signInWithEmailAndPassword } from "firebase/auth";
+import { useTeacherClass } from "../hooks/useTeacherClass";
+import ClassPicker from "../components/ClassPicker";
+import { canSeeHomework, homeworkProgress, isOverdue as isPastDue, localYMD } from "../utils/homework";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
@@ -78,8 +81,11 @@ export default function Dashboard() {
   const [posting, setPosting]               = useState(false);
   const [pendingData, setPendingData]       = useState([]);   // teacher pending tracker
   const [expandedHwIds, setExpandedHwIds]   = useState(new Set());
+  const [announcementsList, setAnnouncementsList] = useState([]);  // admin: manage the news ticker
   const navigate = useNavigate();
   const role = userProfile?.role;
+  const teacherClass = useTeacherClass(userProfile);   // "All classes" teachers pick a class
+  const classId = role === "teacher" ? teacherClass.classId : userProfile?.classId;
 
   /* Day-based picks */
   const dayOfYear = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
@@ -90,10 +96,29 @@ export default function Dashboard() {
   const today_mmdd = `${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
   const isBirthday = !!(userProfile?.birthday && userProfile.birthday === today_mmdd);
 
-  useEffect(() => { fetchDashboardData(); }, [userProfile]); // eslint-disable-line
+  useEffect(() => { fetchDashboardData(); }, [userProfile, classId, teacherClass.ready]); // eslint-disable-line
+
+  /* Admin: live list of school announcements (so wrong ones can be deleted) */
+  useEffect(() => {
+    if (role !== "admin") return;
+    const q = query(collection(db, "announcements"), orderBy("createdAt", "desc"), limit(20));
+    return onSnapshot(q, snap => setAnnouncementsList(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => {});
+  }, [role]);
+
+  async function deleteAnnouncement(a) {
+    if (!window.confirm(`Delete this announcement?\n\n"${a.text}"`)) return;
+    try {
+      await deleteDoc(doc(db, "announcements", a.id));
+      toast.success("Announcement deleted");
+    } catch { toast.error("Failed to delete announcement"); }
+  }
 
   async function fetchDashboardData() {
     if (!userProfile) { setLoading(false); return; }
+    if (role === "teacher" && (!teacherClass.ready || !classId)) {
+      if (teacherClass.ready) setLoading(false);   // "All classes" teacher with no students yet
+      return;
+    }
     try {
       if (role === "admin") {
         // Count queries cost ~1 read each instead of downloading every document
@@ -119,7 +144,7 @@ export default function Dashboard() {
 
         /* 1. Homework for this class */
         const hwSnap = await getDocs(
-          query(collection(db, "homework"), where("classId", "==", userProfile.classId))
+          query(collection(db, "homework"), where("classId", "==", classId))
         );
         let hw = hwSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         if (!isAllSubjects) {
@@ -133,7 +158,7 @@ export default function Dashboard() {
 
         /* 2. Submissions for this class (only for valid homework) */
         const subSnap  = await getDocs(
-          query(collection(db, "submissions"), where("classId", "==", userProfile.classId))
+          query(collection(db, "submissions"), where("classId", "==", classId))
         );
         const validHwIds = new Set(hw.map(h => h.id));
         const allSubs    = subSnap.docs
@@ -144,25 +169,22 @@ export default function Dashboard() {
         const stuSnap = await getDocs(
           query(collection(db, "users"),
             where("role",    "==", "student"),
-            where("classId", "==", userProfile.classId)
+            where("classId", "==", classId)
           )
         );
         const students = stuSnap.docs
           .map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => a.name?.localeCompare(b.name));
 
-        /* 4. Build pending tracker (top 6 most-recent homework) */
-        const pending = hw.slice(0, 6).map(h => {
-          const submittedIds  = new Set(
-            allSubs.filter(s => s.homeworkId === h.id).map(s => s.studentId)
-          );
-          return {
-            hw:             h,
-            submittedCount: submittedIds.size,
-            totalStudents:  students.length,
-            pendingStudents: students.filter(s => !submittedIds.has(s.id)),
-          };
-        });
+        /* 4. Build pending tracker (top 6 most-recent homework).
+              Only students who were in the class when it was posted are expected to do it. */
+        const progress = homeworkProgress(hw, students, allSubs);
+        const pending = hw.slice(0, 6).map(h => ({
+          hw:              h,
+          submittedCount:  progress.submitted[h.id],
+          totalStudents:   progress.total[h.id],
+          pendingStudents: progress.pendingStudents[h.id],
+        }));
 
         // attach submission info to each recent homework for teacher rows
         const subInfoMap = {};
@@ -175,7 +197,8 @@ export default function Dashboard() {
       } else if (role === "student") {
         const q       = query(collection(db, "homework"), where("classId", "==", userProfile.classId));
         const snap    = await getDocs(q);
-        let   hw      = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Same list as My Homework: only homework posted after the student joined the class
+        let   hw      = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(h => canSeeHomework(userProfile, h));
         // sort newest first
         hw.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
@@ -250,6 +273,11 @@ export default function Dashboard() {
         <TwinSwitcher profile={userProfile} />
       )}
 
+      {/* ── "All classes" teacher: choose which class to look at ── */}
+      {role === "teacher" && teacherClass.isCommon && (
+        <ClassPicker classes={teacherClass.classes} value={classId} onChange={teacherClass.setClassId} />
+      )}
+
       {/* ── Profile + Greeting Card ───────────────────────── */}
       <div className="greeting-card" style={{
         display: "flex", alignItems: "center", gap: 18,
@@ -287,7 +315,7 @@ export default function Dashboard() {
           </h1>
           <p style={{ color: "#6b7280", marginTop: 4, fontSize: 13, margin: "4px 0 0" }}>
             {role === "admin"   && "Here's an overview of your school 🏫"}
-            {role === "teacher" && `Managing Class ${userProfile?.classId} ✏️`}
+            {role === "teacher" && (classId ? `Managing Class ${classId} ✏️` : "No classes with students yet ✏️")}
             {role === "student" && `Class ${userProfile?.classId} · Let's crush today's work! 💪`}
           </p>
           <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
@@ -591,6 +619,25 @@ export default function Dashboard() {
               {posting ? "Posting..." : "📣 Post"}
             </button>
           </div>
+
+          {/* Current announcements — delete a wrong one straight away */}
+          {announcementsList.length > 0 && (
+            <div className="ann-list">
+              <div className="ann-list-title">On the news ticker (the newest 6 scroll for everyone)</div>
+              {announcementsList.map((a, i) => (
+                <div key={a.id} className={`ann-row${i >= 6 ? " ann-row-old" : ""}`}>
+                  <span className="ann-text">📢 {a.text}</span>
+                  <span className="ann-date">
+                    {a.createdAt?.seconds
+                      ? new Date(a.createdAt.seconds * 1000).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+                      : "now"}
+                  </span>
+                  <button type="button" className="ann-del" onClick={() => deleteAnnouncement(a)}
+                    aria-label="Delete announcement" title="Delete announcement">🗑️</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -687,16 +734,14 @@ function StatCard({ emoji, bg, color, label, value, onClick }) {
 
 function HomeworkRow({ hw, role, onTap, subInfo }) {
   const now        = new Date();
-  // Local (phone) dates — toISOString() would give the UTC date, which is
-  // "yesterday" in India before 5:30 AM.
-  const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const todayStr    = ymd(now);
-  const tomorrowStr = ymd(new Date(now.getTime() + 86400000));
+  // Phone's local dates (not UTC) — same rules as My Homework
+  const todayStr    = localYMD(now);
+  const tomorrowStr = localYMD(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
 
   const dueDate    = hw.dueDate
-    ? new Date(hw.dueDate + (hw.dueTime ? `T${hw.dueTime}` : "T23:59"))
+    ? new Date(hw.dueDate + (hw.dueTime ? `T${hw.dueTime}` : "T23:59:59"))
     : null;
-  const isOverdue   = dueDate && dueDate < now;
+  const isOverdue   = isPastDue(hw.dueDate, hw.dueTime, now);
   const isDueToday  = !isOverdue && hw.dueDate === todayStr;
   const isDueTomorrow = !isOverdue && !isDueToday && hw.dueDate === tomorrowStr;
   const isGame      = hw.type === "game";

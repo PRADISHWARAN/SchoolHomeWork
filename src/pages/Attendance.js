@@ -6,6 +6,8 @@ import {
   doc, setDoc, getDoc, serverTimestamp,
 } from "firebase/firestore";
 import toast from "react-hot-toast";
+import { useTeacherClass } from "../hooks/useTeacherClass";
+import ClassPicker from "../components/ClassPicker";
 import { Download, CheckCircle, XCircle, CalendarDays, RefreshCw, School } from "lucide-react";
 
 const CLASSES = ["Pre-KG-A","Pre-KG-B","LKG-A","LKG-B","UKG-A","UKG-B","1st-A","1st-B","2nd-A","2nd-B","3rd-A","3rd-B","4th-A","4th-B","5th-A","5th-B","6th-A","6th-B","7th-A","7th-B","8th-A","8th-B","9th-A","9th-B","10th-A","10th-B"];
@@ -89,7 +91,8 @@ function PctRing({ pct, size = 52 }) {
 export default function Attendance() {
   const { userProfile, currentUser } = useAuth();
   const role    = userProfile?.role;
-  const classId = userProfile?.classId;
+  const teacherClass = useTeacherClass(userProfile);   // "All classes" teachers pick a class
+  const classId = role === "teacher" ? teacherClass.classId : userProfile?.classId;
 
   const [tab, setTab] = useState(role === "admin" ? "overview" : "take");
 
@@ -102,36 +105,36 @@ export default function Attendance() {
   const [editMode,        setEditMode]        = useState(false);
 
   useEffect(() => {
-    if (role !== "teacher") { setLoadingStudents(false); return; }
+    if (role !== "teacher" || !classId) { setLoadingStudents(false); return; }
+    let cancelled = false;
     (async () => {
       setLoadingStudents(true);
+      setTodayRecord(null);
       try {
-        const q    = query(collection(db,"users"), where("role","==","student"), where("classId","==",classId));
-        const snap = await getDocs(q);
-        const list = snap.docs.map(d => ({ uid: d.id, ...d.data() })).sort((a,b) => a.name.localeCompare(b.name));
+        // Load the class list AND today's saved attendance together, then merge.
+        // (Loading them separately let "everyone present" overwrite a saved record.)
+        const [snap, savedSnap] = await Promise.all([
+          getDocs(query(collection(db, "users"), where("role", "==", "student"), where("classId", "==", classId))),
+          getDoc(doc(db, "attendance", `${classId}_${todayStr()}`)),
+        ]);
+        if (cancelled) return;
+        const list = snap.docs
+          .map(d => ({ uid: d.id, ...d.data() }))
+          .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        const saved = savedSnap.exists() ? savedSnap.data() : null;
+        const savedStatus = {};
+        (saved?.records || []).forEach(r => { savedStatus[r.uid] = r.status; });
+        const map = {};
+        list.forEach(s => { map[s.uid] = savedStatus[s.uid] || "present"; });
         setStudents(list);
-        const init = {};
-        list.forEach(s => { init[s.uid] = "present"; });
-        setAttendance(init);
-      } catch { toast.error("Could not load students"); }
-      setLoadingStudents(false);
+        setAttendance(map);
+        setTodayRecord(saved);
+      } catch {
+        if (!cancelled) toast.error("Could not load students — check your internet and try again");
+      }
+      if (!cancelled) setLoadingStudents(false);
     })();
-  }, [classId, role]);
-
-  useEffect(() => {
-    if (role !== "teacher") return;
-    (async () => {
-      try {
-        const snap = await getDoc(doc(db, "attendance", `${classId}_${todayStr()}`));
-        if (snap.exists()) {
-          const data = snap.data();
-          setTodayRecord(data);
-          const existing = {};
-          data.records.forEach(r => { existing[r.uid] = r.status; });
-          setAttendance(existing);
-        }
-      } catch {}
-    })();
+    return () => { cancelled = true; };
   }, [classId, role]);
 
   const toggleStudent = (uid) =>
@@ -294,10 +297,14 @@ export default function Attendance() {
         }}>📋 Attendance</h1>
         <p style={{ color: "#6b7280", fontSize: 14, margin: "4px 0 0" }}>
           {role === "teacher"
-            ? `Class ${classId} · Take daily attendance & view reports`
+            ? `Class ${classId || "—"} · Take daily attendance & view reports`
             : "School-wide attendance overview & detailed class reports"}
         </p>
       </div>
+
+      {role === "teacher" && teacherClass.isCommon && (
+        <ClassPicker classes={teacherClass.classes} value={classId} onChange={teacherClass.setClassId} />
+      )}
 
       {/* ── Tab Switcher ─────────────────────────────────── */}
       <div style={{

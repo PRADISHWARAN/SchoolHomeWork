@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { CheckCircle, Clock, X } from "lucide-react";
 import toast from "react-hot-toast";
 import SubmissionFiles, { submissionFiles } from "../components/SubmissionFiles";
+import { canSeeHomework } from "../utils/homework";
 
 export default function Submissions() {
   const { userProfile } = useAuth();
@@ -108,10 +109,13 @@ export default function Submissions() {
     : submissions.filter((s) => s.homeworkId === selectedHwId);
 
   const submittedIds      = new Set(filteredSubs.map((s) => s.studentId));
-  const notSubmitted      = selectedHwId === "all" ? [] : students.filter((s) => !submittedIds.has(s.id));
   const selectedHw        = homework.find((h) => h.id === selectedHwId);
-  const pct               = students.length > 0
-    ? Math.round((filteredSubs.length / students.length) * 100)
+  // Students expected to do the selected homework (in the class when it was posted)
+  const expected          = selectedHw ? students.filter((s) => canSeeHomework(s, selectedHw)) : students;
+  const notSubmitted      = selectedHwId === "all" ? [] : expected.filter((s) => !submittedIds.has(s.id));
+  const submittedCount    = selectedHw ? expected.filter((s) => submittedIds.has(s.id)).length : submittedIds.size;
+  const pct               = expected.length > 0
+    ? Math.round((submittedCount / expected.length) * 100)
     : 0;
 
   if (loading) return <div className="loader"><div className="spinner" /><span>Loading...</span></div>;
@@ -188,14 +192,14 @@ export default function Submissions() {
 
             {/* Stat pills */}
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-              <StatPill emoji="✅" count={filteredSubs.length}     label="Submitted"     pillBg="rgba(16,185,129,0.25)"  numColor="#6ee7b7" />
+              <StatPill emoji="✅" count={submittedCount}          label="Submitted"     pillBg="rgba(16,185,129,0.25)"  numColor="#6ee7b7" />
               <StatPill emoji="❌" count={notSubmitted.length}     label="Not Submitted" pillBg="rgba(239,68,68,0.25)"   numColor="#fca5a5" />
-              <StatPill emoji="👥" count={students.length}         label="Total Students" pillBg="rgba(253,230,138,0.2)" numColor="#fde68a" />
+              <StatPill emoji="👥" count={expected.length}         label="Total Students" pillBg="rgba(253,230,138,0.2)" numColor="#fde68a" />
             </div>
 
             {/* Progress bar */}
             <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 7 }}>
-              {filteredSubs.length} of {students.length} students submitted &nbsp;·&nbsp; <strong style={{ color: "#6ee7b7" }}>{pct}%</strong>
+              {submittedCount} of {expected.length} students submitted &nbsp;·&nbsp; <strong style={{ color: "#6ee7b7" }}>{pct}%</strong>
             </div>
             <div style={{ background: "rgba(255,255,255,0.2)", borderRadius: 50, height: 12, overflow: "hidden" }}>
               <div style={{
@@ -482,9 +486,10 @@ export default function Submissions() {
 function StudentProfileModal({ student, homework, submissions, onClose }) {
   const stuSubs = submissions.filter((s) => s.studentId === student.id);
   const submittedHwIds = new Set(stuSubs.map((s) => s.homeworkId));
-  const completed = homework.filter((h) => submittedHwIds.has(h.id));
-  const pending   = homework.filter((h) => !submittedHwIds.has(h.id));
-  const pct = homework.length > 0 ? Math.round((completed.length / homework.length) * 100) : 0;
+  const theirHomework = homework.filter((h) => canSeeHomework(student, h) || submittedHwIds.has(h.id));
+  const completed = theirHomework.filter((h) => submittedHwIds.has(h.id));
+  const pending   = theirHomework.filter((h) => !submittedHwIds.has(h.id));
+  const pct = theirHomework.length > 0 ? Math.round((completed.length / theirHomework.length) * 100) : 0;
 
   return (
     <div
@@ -563,12 +568,12 @@ function StudentProfileModal({ student, homework, submissions, onClose }) {
           <div style={{ display: "flex", gap: 16 }}>
             <span style={{ color: "#6ee7b7", fontSize: 12, fontWeight: 700 }}>✅ {completed.length} done</span>
             <span style={{ color: "#fca5a5", fontSize: 12, fontWeight: 700 }}>❌ {pending.length} pending</span>
-            <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}>of {homework.length} total</span>
+            <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}>of {theirHomework.length} total</span>
           </div>
         </div>
 
         {/* Homework list */}
-        {homework.length === 0 ? (
+        {theirHomework.length === 0 ? (
           <div style={{ textAlign: "center", color: "#9ca3af", fontSize: 14, padding: "20px 0" }}>
             No homework posted yet.
           </div>

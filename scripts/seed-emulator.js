@@ -13,6 +13,8 @@
      Admin    admin@test.local    / testpass1
      Teacher  teacher@test.local  / testpass1   (class LKG-A)
      Driver   driver@test.local   / testpass1
+     Teacher  allclass@test.local / testpass1   ("All classes" teacher)
+     No profile noprofile@test.local / testpass1
      Student  phone 9000000001    / DOB 01012019 (class LKG-A)
    ──────────────────────────────────────────────────────────── */
 process.env.FIRESTORE_EMULATOR_HOST     ||= "127.0.0.1:8080";
@@ -44,6 +46,10 @@ async function user(uid, email, password, profile) {
   await user("admin1",   "admin@test.local",   "testpass1", { name: "Head Admin",  role: "admin",   classId: "ALL" });
   await user("teacher1", "teacher@test.local", "testpass1", { name: "Priya Ma'am", role: "teacher", classId: "LKG-A", subjects: ["ALL"], gender: "Female" });
   await user("driver1",  "driver@test.local",  "testpass1", { name: "Ravi Anna",   role: "driver",  classId: "DRIVER" });
+  await user("teacherAll", "allclass@test.local", "testpass1", { name: "Kumar Sir", role: "teacher", classId: "ALL", subjects: ["ALL"] });
+  // A login with no profile (to see the "Account not set up" screen)
+  try { await auth.deleteUser("noprofile1"); } catch { /* not there yet */ }
+  await auth.createUser({ uid: "noprofile1", email: "noprofile@test.local", password: "testpass1" });
 
   const students = [
     ["stu1", "9000000001", "01012019", "Aarav Kumar"],

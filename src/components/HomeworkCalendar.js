@@ -16,7 +16,7 @@ function dateKey(year, month, day) {
  * Props:
  *  - homeworkList     : array of homework docs (must have createdAt.seconds)
  *  - submissionsMap   : { [homeworkId]: submittedCount }
- *  - totalStudents    : number  (0 = don't show %)
+ *  - totalStudents    : number, or { [homeworkId]: number } (0 = don't show %)
  *  - showClass        : bool    (show class badge on each card — useful for admin "All" view)
  */
 export default function HomeworkCalendar({
@@ -224,8 +224,9 @@ export default function HomeworkCalendar({
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {selectedHw.map((hw) => {
               const subCount = submissionsMap[hw.id] || 0;
-              const pct      = totalStudents > 0
-                ? Math.round((subCount / totalStudents) * 100)
+              const total    = typeof totalStudents === "number" ? totalStudents : (totalStudents[hw.id] || 0);
+              const pct      = total > 0
+                ? Math.round((subCount / total) * 100)
                 : null;
               const isGame  = hw.type === "game";
               const dueDateObj = hw.dueDate ? new Date(hw.dueDate + "T00:00:00") : null;
@@ -235,7 +236,7 @@ export default function HomeworkCalendar({
               const dueTimeStr = hw.dueTime
                 ? new Date(`2000-01-01T${hw.dueTime}`).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
                 : null;
-              const pending = pct !== null ? totalStudents - subCount : null;
+              const pending = pct !== null ? total - subCount : null;
 
               return (
                 <div key={hw.id} style={{
@@ -320,7 +321,7 @@ export default function HomeworkCalendar({
                             }} />
                           </div>
                           <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
-                            {totalStudents} total students
+                            {total} students
                           </div>
                         </div>
                       ) : (

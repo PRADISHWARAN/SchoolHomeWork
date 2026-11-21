@@ -8,6 +8,7 @@ import toast from "react-hot-toast";
 import HomeworkCalendar from "../components/HomeworkCalendar";
 import { downloadFile } from "../utils/downloadFile";
 import { pickFile } from "../utils/pickFile";
+import { homeworkProgress, localYMD } from "../utils/homework";
 
 const PLATFORMS = [
   { id: "Scratch",       emoji: "🐱", label: "Scratch"       },
@@ -26,8 +27,8 @@ export default function PostHomework() {
   const [loading, setLoading]             = useState(false);
   const [uploading, setUploading]         = useState(false);
   const [viewMode, setViewMode]           = useState("list");       // "list" | "calendar"
-  const [submissionsMap, setSubmissionsMap] = useState({});          // { hwId: count }
-  const [totalStudents, setTotalStudents]   = useState(0);
+  const [submissionsMap, setSubmissionsMap] = useState({});          // { hwId: students who submitted }
+  const [totalStudents, setTotalStudents]   = useState({});          // { hwId: students who should do it }
 
   /* ── Subject scope for this teacher ── */
   const teacherSubjects  = userProfile?.subjects || ["ALL"];
@@ -91,25 +92,22 @@ export default function PostHomework() {
       hw.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setHomeworkList(hw);
 
-      /* ── Submissions map: { hwId → count } ── */
-      const subSnap = await getDocs(
-        query(collection(db, "submissions"), where("classId", "==", classId))
-      );
-      const smap = {};
-      subSnap.docs.forEach(d => {
-        const hwId = d.data().homeworkId;
-        if (hwId) smap[hwId] = (smap[hwId] || 0) + 1;
-      });
-      setSubmissionsMap(smap);
-
-      /* ── Total students in class ── */
-      const stuSnap = await getDocs(
-        query(collection(db, "users"),
+      /* ── Progress per homework: each student counted once, and only
+            students who were in the class when it was posted ── */
+      const [subSnap, stuSnap] = await Promise.all([
+        getDocs(query(collection(db, "submissions"), where("classId", "==", classId))),
+        getDocs(query(collection(db, "users"),
           where("role",    "==", "student"),
           where("classId", "==", classId)
-        )
+        )),
+      ]);
+      const progress = homeworkProgress(
+        hw,
+        stuSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        subSnap.docs.map(d => d.data()),
       );
-      setTotalStudents(stuSnap.size);
+      setSubmissionsMap(progress.submitted);
+      setTotalStudents(progress.total);
 
     } catch { toast.error("Failed to load"); }
     setLoading(false);
@@ -429,7 +427,7 @@ export default function PostHomework() {
                 <input
                   type="date"
                   value={form.dueDate}
-                  min={new Date().toISOString().split("T")[0]}
+                  min={localYMD()}
                   onChange={e => setForm({ ...form, dueDate: e.target.value })}
                   style={{ flex: 1 }}
                 />

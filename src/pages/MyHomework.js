@@ -7,6 +7,7 @@ import { Upload, X, FileUp, Star } from "lucide-react";
 import toast from "react-hot-toast";
 import { downloadFile } from "../utils/downloadFile";
 import SubmissionFiles, { submissionFiles } from "../components/SubmissionFiles";
+import { canSeeHomework, daysUntilDue, isOverdue } from "../utils/homework";
 
 // A worksheet can have several pages — one photo (or PDF) per page
 const MAX_PAGES = 5;
@@ -43,10 +44,9 @@ function chip(color, bg) {
 }
 
 function DaysLeft({ dueDate, dueTime }) {
-  const due = new Date(dueDate + (dueTime ? `T${dueTime}` : "T23:59:59"));
-  if (!dueTime) due.setSeconds(59);
-  const days = Math.ceil((due - new Date()) / (1000 * 60 * 60 * 24));
-  if (days < 0)  return <span style={chip("#ef4444", "#fee2e2")}>⚠️ Overdue!</span>;
+  // Count calendar days (today / tomorrow), not 24-hour blocks
+  if (isOverdue(dueDate, dueTime)) return <span style={chip("#ef4444", "#fee2e2")}>⚠️ Overdue!</span>;
+  const days = daysUntilDue(dueDate);
   if (days === 0) return <span style={chip("#f59e0b", "#fef3c7")}>🔥 Due Today!</span>;
   if (days === 1) return <span style={chip("#f59e0b", "#fef3c7")}>⏰ Due Tomorrow!</span>;
   if (days <= 3)  return <span style={chip("#0891b2", "#cffafe")}>📅 {days} days left</span>;
@@ -75,10 +75,9 @@ export default function MyHomework() {
     try {
       const hwQ = query(collection(db, "homework"), where("classId", "==", userProfile.classId));
       const hwSnap = await getDocs(hwQ);
-      const joinedAt = userProfile?.classJoinedAt?.seconds ?? null;
       const hw = hwSnap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter(h => joinedAt === null || (h.createdAt?.seconds || 0) >= joinedAt);
+        .filter(h => canSeeHomework(userProfile, h));   // only homework posted after joining the class
       hw.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setHomeworkList(hw);
 

@@ -24,6 +24,25 @@ export function studentLoginEmails(phone, dob, twinSlots = 3) {
   return list;
 }
 
+/** DDMMYYYY that is a real, past date (e.g. not 31022020). */
+export function isRealDob(dob) {
+  if (!/^\d{8}$/.test(dob || "")) return false;
+  const d = +dob.slice(0, 2), m = +dob.slice(2, 4), y = +dob.slice(4);
+  const date = new Date(y, m - 1, d);
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d
+      && y >= 1990 && date <= new Date();
+}
+
+/** Indian mobile number: 10 digits starting 6–9. */
+export function isValidPhone(phone) {
+  return /^[6-9]\d{9}$/.test(phone || "");
+}
+
+/** "MM-DD" birthday (for the birthday greeting) from a DDMMYYYY date of birth. */
+export function birthdayFromDob(dob) {
+  return /^\d{8}$/.test(dob || "") ? `${dob.slice(2, 4)}-${dob.slice(0, 2)}` : "";
+}
+
 const CREDENTIAL_ERRORS = new Set([
   "auth/invalid-credential",
   "auth/invalid-login-credentials",

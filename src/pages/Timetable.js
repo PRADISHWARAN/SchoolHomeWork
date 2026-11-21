@@ -4,6 +4,8 @@ import { db } from "../firebase/config";
 import { useAuth } from "../context/AuthContext";
 import { Save } from "lucide-react";
 import toast from "react-hot-toast";
+import { useTeacherClass } from "../hooks/useTeacherClass";
+import ClassPicker from "../components/ClassPicker";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -22,9 +24,13 @@ const ALL_CLASSES = ["Pre-KG-A","Pre-KG-B","LKG-A","LKG-B","UKG-A","UKG-B","1st-
 export default function Timetable() {
   const { userProfile } = useAuth();
   const role = userProfile?.role;
-  // Admin picks a class; teacher/student use their own classId
+  // Admin picks any class; "All classes" teachers pick one of theirs;
+  // class teachers and students use their own class
   const [adminClass, setAdminClass] = useState("LKG-A");
-  const classId = role === "admin" ? adminClass : userProfile?.classId;
+  const teacherClass = useTeacherClass(userProfile);
+  const classId = role === "admin" ? adminClass
+                : role === "teacher" ? teacherClass.classId
+                : userProfile?.classId;
 
   const [periodTimes, setPeriodTimes] = useState({ ...DEFAULT_TIMES });
   const [days, setDays] = useState({});
@@ -106,6 +112,10 @@ export default function Timetable() {
             {ALL_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
+      )}
+
+      {role === "teacher" && teacherClass.isCommon && (
+        <ClassPicker classes={teacherClass.classes} value={classId} onChange={teacherClass.setClassId} />
       )}
 
       <div className="page-header">

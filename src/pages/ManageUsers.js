@@ -8,7 +8,7 @@ import { httpsCallable } from "firebase/functions";
 import { auth, db, storage, functions, firebaseConfig } from "../firebase/config";
 import { Plus, Trash2, Users, X, Camera, Pencil } from "lucide-react";
 import toast from "react-hot-toast";
-import { studentLoginEmails } from "../utils/studentLogin";
+import { studentLoginEmails, isRealDob, isValidPhone, birthdayFromDob } from "../utils/studentLogin";
 
 /* Secondary Firebase app used ONLY for creating new accounts
    so the admin stays logged in during user creation */
@@ -271,11 +271,11 @@ export default function ManageUsers() {
       if (!addForm.name || !addForm.phone || !addForm.dob) {
         toast.error("Please fill Name, Phone Number and Date of Birth"); return;
       }
-      if (addForm.phone.length !== 10) {
-        toast.error("Phone number must be exactly 10 digits"); return;
+      if (!isValidPhone(addForm.phone)) {
+        toast.error("Phone number must be 10 digits, starting with 6, 7, 8 or 9"); return;
       }
-      if (addForm.dob.length !== 8) {
-        toast.error("Date of Birth must be 8 digits — e.g. 14062003"); return;
+      if (!isRealDob(addForm.dob)) {
+        toast.error("Date of Birth must be a real date as DDMMYYYY — e.g. 14062019"); return;
       }
     } else {
       if (!addForm.name || !addForm.email || !addForm.password) {
@@ -331,7 +331,7 @@ export default function ManageUsers() {
           role:      addForm.role,
           classId:   addForm.role === "admin" ? "ALL" : addForm.role === "driver" ? "DRIVER" : addForm.classId,
           gender:    addForm.gender,
-          birthday:  addForm.birthday || "",
+          birthday:  addForm.birthday || (isStudent ? birthdayFromDob(addForm.dob) : ""),
           photoURL,
           uid:       cred.user.uid,
           createdAt: new Date().toISOString(),
@@ -375,6 +375,8 @@ export default function ManageUsers() {
       gender:   user.gender   || "Male",
       birthday: user.birthday || "",
       subjects: user.subjects || ["ALL"],
+      phone:    user.phone    || "",
+      dob:      user.dob      || "",
     });
     setEditPhotoFile(null);
     setEditPhotoPreview(null);
@@ -390,8 +392,23 @@ export default function ManageUsers() {
 
   async function handleUpdate() {
     if (!editForm.name.trim()) { toast.error("Name cannot be empty"); return; }
+    const isStudentEdit = editingUser.role === "student";
+    const loginChanged  = isStudentEdit &&
+      (editForm.phone !== (editingUser.phone || "") || editForm.dob !== (editingUser.dob || ""));
+    if (loginChanged) {
+      if (!isValidPhone(editForm.phone)) { toast.error("Phone number must be 10 digits, starting with 6, 7, 8 or 9"); return; }
+      if (!isRealDob(editForm.dob))      { toast.error("Date of Birth must be a real date as DDMMYYYY — e.g. 14062019"); return; }
+    }
     setSaving(true);
     try {
+      /* Phone / DOB are the login → updated by an admin-only Cloud Function
+         (keeps all the student's homework history) */
+      if (loginChanged) {
+        await httpsCallable(functions, "updateStudentLogin")({
+          uid: editingUser.id, phone: editForm.phone, dob: editForm.dob,
+        });
+      }
+
       /* Upload new photo if picked */
       let photoURL = editingUser.photoURL || "";
       if (editPhotoFile) {
@@ -407,7 +424,10 @@ export default function ManageUsers() {
         role:     editForm.role,
         classId:  editForm.role === "admin" ? "ALL" : editForm.role === "driver" ? "DRIVER" : editForm.classId,
         gender:   editForm.gender,
-        birthday: editForm.birthday || "",
+        // Birthday follows a corrected DOB unless it was set to something else by hand
+        birthday: loginChanged && (!editForm.birthday || editForm.birthday === birthdayFromDob(editingUser.dob))
+          ? birthdayFromDob(editForm.dob)
+          : (editForm.birthday || ""),
         photoURL,
         ...(editForm.role === "teacher"
           ? { subjects: editForm.subjects.length > 0 ? editForm.subjects : ["ALL"] }
@@ -415,7 +435,11 @@ export default function ManageUsers() {
         ...(classChanged ? { classJoinedAt: serverTimestamp() } : {}),
       });
 
-      toast.success(`${editForm.name}'s profile updated! ✏️`);
+      // Twins show each other's name on the "Switch to …" button
+      if (isStudentEdit) await linkTwins(editForm.phone, editForm.dob).catch(() => {});
+      toast.success(loginChanged
+        ? `${editForm.name}'s profile updated! ✏️ New login: ${editForm.phone} + ${editForm.dob}`
+        : `${editForm.name}'s profile updated! ✏️`, { duration: loginChanged ? 7000 : 4000 });
       closeEditModal();
       fetchUsers();
     } catch (e) {
@@ -426,7 +450,7 @@ export default function ManageUsers() {
 
   /* ── Delete ── */
   async function handleDelete(userId, userName) {
-    if (!window.confirm(`Delete ${userName}? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${userName}? Their login, homework submissions and doubts will be removed. This cannot be undone.`)) return;
     try {
       // Deletes both the login and the profile (Cloud Function, admin-only)
       await httpsCallable(functions, "deleteUserAccount")({ uid: userId });
@@ -440,6 +464,8 @@ export default function ManageUsers() {
       if (["functions/not-found", "functions/unavailable", "functions/internal"].includes(e.code)) {
         try {
           await deleteDoc(doc(db, "users", userId));
+          const removedUser = users.find(u => u.id === userId);
+          if (removedUser?.role === "student") linkTwins(removedUser.phone, removedUser.dob).catch(() => {});
           toast.success("User profile removed (their login still exists — deploy Cloud Functions to remove it too)");
           fetchUsers();
           return;
@@ -860,19 +886,46 @@ export default function ManageUsers() {
               />
             </div>
 
-            {/* ── Email (read-only display) ── */}
-            <div className="form-group">
-              <label>Email Address</label>
-              <input
-                type="email"
-                value={editingUser.email}
-                readOnly
-                style={{ background: "#f9fafb", color: "#9ca3af", cursor: "not-allowed" }}
-              />
-              <span style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, display: "block" }}>
-                🔒 Email cannot be changed here
-              </span>
-            </div>
+            {editingUser.role === "student" ? (
+              /* ── Student login: phone + date of birth ── */
+              <div className="form-group">
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+                  <div>
+                    <label>📱 Phone Number</label>
+                    <input
+                      type="text" inputMode="numeric" maxLength={10} placeholder="e.g. 9876543210"
+                      value={editForm.phone}
+                      onChange={(e) => setEditForm({ ...editForm, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })}
+                    />
+                  </div>
+                  <div>
+                    <label>🎂 Date of Birth (DDMMYYYY)</label>
+                    <input
+                      type="text" inputMode="numeric" maxLength={8} placeholder="e.g. 14062019"
+                      value={editForm.dob}
+                      onChange={(e) => setEditForm({ ...editForm, dob: e.target.value.replace(/\D/g, "").slice(0, 8) })}
+                    />
+                  </div>
+                </div>
+                <span style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, display: "block" }}>
+                  🔑 These are the parent's login. Changing them keeps all homework history.
+                </span>
+              </div>
+            ) : (
+              /* ── Email (read-only display) ── */
+              <div className="form-group">
+                <label>Email Address</label>
+                <input
+                  type="email"
+                  value={editingUser.email}
+                  readOnly
+                  style={{ background: "#f9fafb", color: "#9ca3af", cursor: "not-allowed" }}
+                />
+                <span style={{ fontSize: 11, color: "#9ca3af", marginTop: 4, display: "block" }}>
+                  🔒 Email cannot be changed here
+                </span>
+              </div>
+            )}
 
             {/* ── Role + Class + Gender ── */}
             <div className="form-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12 }}>

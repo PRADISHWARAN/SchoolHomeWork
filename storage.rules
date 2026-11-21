@@ -2,13 +2,22 @@ rules_version = '2';
 
 // ─────────────────────────────────────────────────────────────
 // SchoolDesk — Cloud Storage security rules
-// Only signed-in users can read or upload. Each upload path has a
-// size and file-type limit so nobody can fill the free 5 GB quota.
+// Only signed-in users can read. Uploads are limited by size, file type
+// and by who you are: the role comes from users/{uid} in Firestore
+// (cross-service rules), so only admins can change photos or the
+// calendar and only staff can post homework files / voice messages.
+// Files are deleted by Cloud Functions (Admin SDK), not by the app.
 // ─────────────────────────────────────────────────────────────
 service firebase.storage {
   match /b/{bucket}/o {
 
     function signedIn() { return request.auth != null; }
+    function role() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role;
+    }
+    function isAdmin() { return signedIn() && role() == 'admin'; }
+    function isStaff() { return signedIn() && role() in ['admin', 'teacher']; }
+
     function maxMB(n) { return request.resource.size < n * 1024 * 1024; }
     function isImage() { return request.resource.contentType.matches('image/.*'); }
     function isPdf()   { return request.resource.contentType == 'application/pdf'; }
@@ -21,7 +30,7 @@ service firebase.storage {
     // Homework attachments posted by teachers
     match /homework/{classId}/{file} {
       allow read: if signedIn();
-      allow create: if signedIn() && maxMB(20) && (isImage() || isPdf());
+      allow create: if isStaff() && maxMB(20) && (isImage() || isPdf());
     }
 
     // Student submissions — each student can only write in their own folder
@@ -31,22 +40,23 @@ service firebase.storage {
                     && maxMB(10) && (isImage() || isPdf());
     }
 
-    // Profile photos (uploaded by admin)
+    // Profile photos — admin only
     match /profilePhotos/{uid} {
       allow read: if signedIn();
-      allow write: if signedIn() && maxMB(5) && isImage();
+      allow create, update: if isAdmin() && maxMB(5) && isImage();
+      allow delete: if isAdmin();
     }
 
     // Teacher voice announcements
     match /announcements/{file} {
       allow read: if signedIn();
-      allow create: if signedIn() && maxMB(10) && isAudio();
+      allow create: if isStaff() && maxMB(10) && isAudio();
     }
 
     // Teacher voice replies to doubts
     match /doubts/replies/{file} {
       allow read: if signedIn();
-      allow create: if signedIn() && maxMB(10) && isAudio();
+      allow create: if isStaff() && maxMB(10) && isAudio();
     }
 
     // Student voice doubts — file name must start with the student's uid
@@ -56,10 +66,11 @@ service firebase.storage {
                     && file.matches(request.auth.uid + '_.*');
     }
 
-    // Academic calendar PDF (admin)
+    // Academic calendar PDF — admin only
     match /calendar/{file} {
       allow read: if signedIn();
-      allow write: if signedIn() && maxMB(20) && isPdf();
+      allow create, update: if isAdmin() && maxMB(20) && isPdf();
+      allow delete: if isAdmin();
     }
 
     // Everything else is denied by default.

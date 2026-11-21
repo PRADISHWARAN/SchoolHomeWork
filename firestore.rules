@@ -38,10 +38,12 @@ service cloud.firestore {
 
     // ── Users ────────────────────────────────────────────────
     match /users/{uid} {
-      // Own profile; admins see everyone; teachers see student profiles.
+      // Own profile; admins see everyone; teachers see the students of their
+      // own class ("All classes" teachers see every student).
       allow read: if isSelf(uid)
                   || isAdmin()
-                  || (isTeacher() && resource.data.role == 'student');
+                  || (isTeacher() && resource.data.role == 'student'
+                      && (me().classId == 'ALL' || resource.data.classId == me().classId));
       allow create, delete: if isAdmin();
       // Users may only refresh their own push-notification token.
       allow update: if isAdmin()
