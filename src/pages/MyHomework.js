@@ -6,7 +6,11 @@ import { useAuth } from "../context/AuthContext";
 import { Upload, X, FileUp, Star } from "lucide-react";
 import toast from "react-hot-toast";
 import { downloadFile } from "../utils/downloadFile";
-import { pickFile } from "../utils/pickFile";
+import SubmissionFiles, { submissionFiles } from "../components/SubmissionFiles";
+
+// A worksheet can have several pages — one photo (or PDF) per page
+const MAX_PAGES = 5;
+const MAX_MB    = 10;   // per file — same limit as storage.rules
 
 const SUBJECT_CONFIG = {
   Mathematics:         { emoji: "🔢", color: "#f59e0b", bg: "#fef3c7" },
@@ -56,8 +60,9 @@ export default function MyHomework() {
   const [submissions, setSubmissions] = useState({});
   const [loading, setLoading] = useState(true);
   const [selectedHw, setSelectedHw] = useState(null);
-  const [subForm, setSubForm] = useState({ note: "", file: null, bringPhysically: false });
+  const [subForm, setSubForm] = useState({ note: "", files: [], bringPhysically: false });
   const [submitting, setSubmitting] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState("");
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [subjectFilter, setSubjectFilter] = useState("All");
   const [motivation] = useState(MOTIVATIONS[Math.floor(Math.random() * MOTIVATIONS.length)]);
@@ -88,15 +93,42 @@ export default function MyHomework() {
 
   function openSubmit(hw) {
     const preNote = hw.type === "game" ? "I played and completed the game! 🎮" : "";
-    setSubForm({ note: preNote, file: null, bringPhysically: false });
+    setSubForm({ note: preNote, files: [], bringPhysically: false });
     setShowSubmitConfirm(false);
     setSelectedHw(hw);
+  }
+
+  /* ── Pages (photos / PDFs) ── */
+  function addPages(e) {
+    const picked = Array.from(e.target.files || []);
+    e.target.value = ""; // lets the same photo be picked again after removing it
+    if (!picked.length) return;
+    const pages = [...subForm.files];
+    for (const file of picked) {
+      if (pages.length >= MAX_PAGES) { toast.error(`You can add up to ${MAX_PAGES} pages 📄`); break; }
+      if (file.size > MAX_MB * 1024 * 1024) { toast.error(`"${file.name}" is too big — please use one under ${MAX_MB} MB 📦`); continue; }
+      pages.push({ file, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null });
+    }
+    setSubForm({ ...subForm, files: pages });
+  }
+
+  function removePage(index) {
+    const page = subForm.files[index];
+    if (page?.preview) URL.revokeObjectURL(page.preview);
+    setSubForm({ ...subForm, files: subForm.files.filter((_, i) => i !== index) });
+  }
+
+  function closeSubmit() {
+    subForm.files.forEach(p => p.preview && URL.revokeObjectURL(p.preview));
+    setSubForm({ note: "", files: [], bringPhysically: false });
+    setShowSubmitConfirm(false);
+    setSelectedHw(null);
   }
 
   function validateSubmission() {
     // Games are self-reported — no file upload required
     if (selectedHw?.type === "game") return true;
-    if (!subForm.file && !subForm.bringPhysically) {
+    if (!subForm.files.length && !subForm.bringPhysically) {
       toast.error("Please upload your work (photo/PDF) or tick 'I will bring it physically' 📎");
       return false;
     }
@@ -108,13 +140,18 @@ export default function MyHomework() {
     if (!validateSubmission()) return;
     setSubmitting(true);
     try {
-      let fileUrl = null, fileName = null;
-      if (subForm.file) {
-        const fileRef = ref(storage, `submissions/${currentUser.uid}/${Date.now()}_${subForm.file.name}`);
-        await uploadBytes(fileRef, subForm.file);
-        fileUrl = await getDownloadURL(fileRef);
-        fileName = subForm.file.name;
+      // Upload pages one by one (more reliable on mobile data) with progress
+      const files = [];
+      const total = subForm.files.length;
+      for (let i = 0; i < total; i++) {
+        const { file } = subForm.files[i];
+        setUploadMsg(total > 1 ? `Uploading page ${i + 1} of ${total}… 📤` : "Uploading… 📤");
+        const safeName = file.name.replace(/[^\w.-]+/g, "_");
+        const fileRef  = ref(storage, `submissions/${currentUser.uid}/${Date.now()}_p${i + 1}_${safeName}`);
+        await uploadBytes(fileRef, file);
+        files.push({ url: await getDownloadURL(fileRef), name: file.name, type: file.type || "" });
       }
+      setUploadMsg("Saving… ✨");
       await addDoc(collection(db, "submissions"), {
         homeworkId: selectedHw.id,
         homeworkTitle: selectedHw.title,
@@ -123,7 +160,10 @@ export default function MyHomework() {
         studentId: currentUser.uid,
         studentName: userProfile.name,
         note: subForm.note,
-        fileUrl, fileName,
+        files,
+        // First page — older versions of the app only read these two
+        fileUrl:  files[0]?.url  || null,
+        fileName: files[0]?.name || null,
         bringPhysically: subForm.bringPhysically,
         submittedAt: serverTimestamp(),
       });
@@ -132,11 +172,10 @@ export default function MyHomework() {
         ? "🎮 Game marked complete!"
         : "🎉 Homework submitted!";
       toast.success(msg);
-      setSelectedHw(null);
-      setSubForm({ note: "", file: null, bringPhysically: false });
-      setShowSubmitConfirm(false);
+      closeSubmit();
       fetchData();
-    } catch { toast.error("Failed to submit"); }
+    } catch { toast.error("Failed to submit — please check your internet and try again"); }
+    setUploadMsg("");
     setSubmitting(false);
   }
 
@@ -300,13 +339,13 @@ export default function MyHomework() {
 
       {/* Submit Modal */}
       {selectedHw && (
-        <div className="modal-overlay" onClick={() => setSelectedHw(null)}>
+        <div className="modal-overlay" onClick={closeSubmit}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "90vh", overflowY: "auto" }}>
             <div className="modal-header">
               <h2 className="modal-title">
                 {selectedHw.type === "game" ? "🎮 Complete Game" : "✏️ Submit Homework"}
               </h2>
-              <button onClick={() => setSelectedHw(null)} style={closeBtn}><X size={18} /></button>
+              <button onClick={closeSubmit} style={closeBtn}><X size={18} /></button>
             </div>
 
             {/* Subject banner */}
@@ -348,29 +387,48 @@ export default function MyHomework() {
             {selectedHw.type !== "game" && (
               <div className="form-group">
                 <label>Upload Your Work (Photo / PDF)</label>
-                {subForm.file ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "#f0f4ff", borderRadius: 12, border: "2px solid #c7d2fe" }}>
-                    <FileUp size={18} color="#6366f1" />
-                    <span style={{ fontSize: 14, color: "#4f46e5", fontWeight: 700, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subForm.file.name}</span>
-                    <button onClick={() => setSubForm({ ...subForm, file: null })} style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", display: "flex" }}><X size={16} /></button>
+
+                {/* Pages added so far */}
+                {subForm.files.length > 0 && (
+                  <div className="page-grid">
+                    {subForm.files.map((p, i) => (
+                      <div key={p.preview || `${p.file.name}-${i}`} className="page-thumb">
+                        {p.preview
+                          ? <img src={p.preview} alt={`Page ${i + 1}`} />
+                          : <div className="page-thumb-file">📄<span>{p.file.name}</span></div>}
+                        <span className="page-thumb-label">Page {i + 1}</span>
+                        <button type="button" className="page-thumb-remove"
+                          onClick={() => removePage(i)} aria-label={`Remove page ${i + 1}`}>
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                ) : (
+                )}
+
+                {subForm.files.length < MAX_PAGES && (
                   <div style={{ display: "flex", gap: 10 }}>
                     <button type="button" onClick={() => document.getElementById("sub-file").click()}
                       style={{ flex: 1, padding: "12px 0", borderRadius: 12, border: "2px dashed #c7d2fe", background: "#f8f9ff", color: "#6366f1", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                      <FileUp size={18} /> Choose File
+                      <FileUp size={18} /> {subForm.files.length ? "Add Files" : "Choose Files"}
                     </button>
                     <button type="button" onClick={() => document.getElementById("sub-camera").click()}
                       style={{ flex: 1, padding: "12px 0", borderRadius: 12, border: "2px dashed #fde68a", background: "#fffbeb", color: "#d97706", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                      📷 Take Photo
+                      📷 {subForm.files.length ? "Next Page" : "Take Photo"}
                     </button>
                   </div>
                 )}
-                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>Take a photo of your notebook or upload a PDF</div>
-                <input id="sub-file" type="file" accept=".pdf,.jpg,.jpeg,.png"
-                  style={{ display: "none" }} onChange={e => pickFile(e, 10, f => setSubForm({ ...subForm, file: f }))} />
+                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>
+                  {subForm.files.length === 0
+                    ? `Take a photo of each page (up to ${MAX_PAGES}) or upload a PDF`
+                    : subForm.files.length < MAX_PAGES
+                      ? `${subForm.files.length} of ${MAX_PAGES} pages added · more pages? tap "Next Page"`
+                      : `${MAX_PAGES} pages added — that's the maximum`}
+                </div>
+                <input id="sub-file" type="file" multiple accept=".pdf,.jpg,.jpeg,.png"
+                  style={{ display: "none" }} onChange={addPages} />
                 <input id="sub-camera" type="file" accept="image/*" capture="environment"
-                  style={{ display: "none" }} onChange={e => pickFile(e, 10, f => setSubForm({ ...subForm, file: f }))} />
+                  style={{ display: "none" }} onChange={addPages} />
               </div>
             )}
 
@@ -423,14 +481,14 @@ export default function MyHomework() {
                       fontFamily: "'Nunito', sans-serif", fontSize: 13, cursor: "pointer",
                     }}
                   >
-                    {submitting ? "Submitting... 🚀" : "✅ Yes, Submit Now!"}
+                    {submitting ? (uploadMsg || "Submitting... 🚀") : "✅ Yes, Submit Now!"}
                   </button>
                 </div>
               </div>
             )}
 
             <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
-              <button className="btn btn-secondary" onClick={() => { setSelectedHw(null); setShowSubmitConfirm(false); }} style={{ flex: 1, justifyContent: "center" }}>
+              <button className="btn btn-secondary" onClick={closeSubmit} style={{ flex: 1, justifyContent: "center" }}>
                 Cancel
               </button>
               {!showSubmitConfirm && (
@@ -612,13 +670,12 @@ function HomeworkCard({ hw, status, onSubmit, submission }) {
               fontSize: 13, color: "#059669", fontWeight: 700,
             }}>
               <Star size={12} style={{ flexShrink: 0 }} />
-              {submission.bringPhysically ? "📚 Bringing physically" : submission.note || "File uploaded"}
-              {submission.fileUrl && (
-                <button
-                  onClick={() => downloadFile(submission.fileUrl, submission.fileName || "submission")}
-                  style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "#6366f1", marginLeft: 8, fontFamily: "inherit", fontSize: "inherit", fontWeight: 700 }}
-                >📎 View</button>
-              )}
+              {submission.bringPhysically
+                ? "📚 Bringing physically"
+                : submission.note || (submissionFiles(submission).length > 1
+                    ? `${submissionFiles(submission).length} pages uploaded`
+                    : "File uploaded")}
+              <SubmissionFiles sub={submission} style={{ marginLeft: 8 }} />
             </div>
           )}
         </div>

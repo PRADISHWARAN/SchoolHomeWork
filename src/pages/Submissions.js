@@ -2,9 +2,9 @@ import React, { useState, useEffect } from "react";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "../firebase/config";
 import { useAuth } from "../context/AuthContext";
-import { CheckCircle, FileText, Clock, X } from "lucide-react";
+import { CheckCircle, Clock, X } from "lucide-react";
 import toast from "react-hot-toast";
-import { downloadFile } from "../utils/downloadFile";
+import SubmissionFiles, { submissionFiles } from "../components/SubmissionFiles";
 
 export default function Submissions() {
   const { userProfile } = useAuth();
@@ -289,13 +289,8 @@ export default function Submissions() {
                           </span>
                         </td>
                         <td style={styles.td}>
-                          {sub.fileUrl ? (
-                            <button
-                              onClick={() => downloadFile(sub.fileUrl, sub.fileName || "submission")}
-                              style={{ ...styles.fileLink, background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}
-                            >
-                              <FileText size={14} /> Download
-                            </button>
+                          {submissionFiles(sub).length ? (
+                            <SubmissionFiles sub={sub} />
                           ) : (
                             <span style={{ color: "#d1d5db", fontSize: 13 }}>—</span>
                           )}
@@ -454,13 +449,8 @@ export default function Submissions() {
                         </span>
                       </td>
                       <td style={styles.td}>
-                        {sub.fileUrl ? (
-                          <button
-                            onClick={() => downloadFile(sub.fileUrl, sub.fileName || "submission")}
-                            style={{ ...styles.fileLink, background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}
-                          >
-                            <FileText size={14} /> Download
-                          </button>
+                        {submissionFiles(sub).length ? (
+                          <SubmissionFiles sub={sub} />
                         ) : (
                           <span style={{ color: "#d1d5db", fontSize: 13 }}>—</span>
                         )}
