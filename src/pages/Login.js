@@ -5,6 +5,7 @@ import { sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../firebase/config";
 import { Mail, Lock, Eye, EyeOff, Phone, Calendar } from "lucide-react";
 import toast from "react-hot-toast";
+import { signInStudent, STUDENT_DOMAIN } from "../utils/studentLogin";
 
 /* Emojis that float in the background */
 const FLOAT_POOL = ["📚","✏️","⭐","🎨","🔢","🎮","🌈","🏆","🎯","🌟","🦋","🔬","📖","🎵","🎪","🧠","🚀","🌺","🎭","🎈"];
@@ -28,7 +29,7 @@ function getGreeting() {
   return       { text: "Good Evening! 🌙",                   sub: "Let's finish today's work strong! 🎯" };
 }
 
-const DOMAIN = "vaanavilvidyalaya.com";
+const DOMAIN = STUDENT_DOMAIN;
 
 export default function Login() {
   const [loginType, setLoginType] = useState("student"); // "student" | "staff"
@@ -105,7 +106,12 @@ export default function Login() {
 
     setLoading(true);
     try {
-      await login(loginEmail, loginPassword);
+      if (loginType === "student") {
+        // Also finds brothers/sisters/twins who share a parent's phone number
+        await signInStudent(login, phone, dob);
+      } else {
+        await login(loginEmail, loginPassword);
+      }
       toast.success("Welcome! Let's go! 🚀");
       navigate("/dashboard");
     } catch (e) {

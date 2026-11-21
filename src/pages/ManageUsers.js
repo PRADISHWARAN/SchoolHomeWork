@@ -2,19 +2,25 @@ import React, { useState, useEffect, useRef } from "react";
 import { collection, getDocs, deleteDoc, doc, setDoc, updateDoc, serverTimestamp, query, where } from "firebase/firestore";
 import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { initializeApp, getApps } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { getAuth, connectAuthEmulator } from "firebase/auth";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
 import { auth, db, storage, functions, firebaseConfig } from "../firebase/config";
 import { Plus, Trash2, Users, X, Camera, Pencil } from "lucide-react";
 import toast from "react-hot-toast";
+import { studentLoginEmails } from "../utils/studentLogin";
 
 /* Secondary Firebase app used ONLY for creating new accounts
    so the admin stays logged in during user creation */
 function getSecondaryAuth() {
   const existing = getApps().find(a => a.name === "secondary");
   const app = existing || initializeApp(firebaseConfig, "secondary");
-  return getAuth(app);
+  const secondaryAuth = getAuth(app);
+  // Local development against the Firebase emulators
+  if (!existing && process.env.REACT_APP_USE_EMULATORS === "true") {
+    connectAuthEmulator(secondaryAuth, "http://127.0.0.1:9099", { disableWarnings: true });
+  }
+  return secondaryAuth;
 }
 
 const CLASSES   = ["Pre-KG-A", "Pre-KG-B", "LKG-A", "LKG-B", "UKG-A", "UKG-B", "1st-A", "1st-B", "2nd-A", "2nd-B", "3rd-A", "3rd-B", "4th-A", "4th-B", "5th-A", "5th-B", "6th-A", "6th-B", "7th-A", "7th-B", "8th-A", "8th-B", "9th-A", "9th-B", "10th-A", "10th-B"];
@@ -237,7 +243,18 @@ export default function ManageUsers() {
   /* ══════════════════════════════════════
      CREATE (Add) handlers
   ══════════════════════════════════════ */
-  const DOMAIN = "vaanavilvidyalaya.com";
+  const sameName = (a, b) => String(a || "").replace(/[\s.]/g, "").toLowerCase() === String(b || "").replace(/[\s.]/g, "").toLowerCase();
+
+  /* Twins share phone + date of birth (= the same login details). Store the
+     other twin(s) on each profile so the dashboard can offer "Switch to …". */
+  async function linkTwins(phone, dob) {
+    if (!phone || !dob) return;
+    const snap  = await getDocs(query(collection(db, "users"), where("phone", "==", phone)));
+    const group = snap.docs.filter(d => d.data().role === "student" && d.data().dob === dob);
+    await Promise.all(group.map(d => updateDoc(d.ref, {
+      twins: group.filter(o => o.id !== d.id).map(o => ({ name: o.data().name, email: o.data().email })),
+    })));
+  }
 
   function closeAddModal() {
     setShowAddModal(false);
@@ -272,13 +289,31 @@ export default function ManageUsers() {
       toast.error("Please select at least one subject for this teacher"); return;
     }
 
-    const authEmail    = isStudent ? `${addForm.phone}@${DOMAIN}` : addForm.email;
-    const authPassword = isStudent ? addForm.dob                  : addForm.password;
+    if (isStudent && users.some(u => u.role === "student" && u.phone === addForm.phone
+                                   && u.dob === addForm.dob && sameName(u.name, addForm.name))) {
+      toast.error(`${addForm.name} is already added (same phone and date of birth)`); return;
+    }
+
+    const authPassword = isStudent ? addForm.dob : addForm.password;
+    // Brothers, sisters and twins can share a parent's phone number — each
+    // child still gets their own login (see utils/studentLogin.js).
+    const candidates   = isStudent ? studentLoginEmails(addForm.phone, addForm.dob) : [addForm.email];
 
     setCreating(true);
     try {
       const secondaryAuth = getSecondaryAuth();
-      const cred = await createUserWithEmailAndPassword(secondaryAuth, authEmail, authPassword);
+      let cred = null, authEmail = null;
+      for (const candidate of candidates) {
+        try {
+          cred = await createUserWithEmailAndPassword(secondaryAuth, candidate, authPassword);
+          authEmail = candidate;
+          break;
+        } catch (err) {
+          if (isStudent && err.code === "auth/email-already-in-use") continue;
+          throw err;
+        }
+      }
+      if (!cred) throw Object.assign(new Error("too many children share this phone and date of birth"), { code: "app/no-login-slot" });
 
       let photoURL = "";
       if (addPhotoFile) {
@@ -302,7 +337,15 @@ export default function ManageUsers() {
           createdAt: new Date().toISOString(),
           classJoinedAt: serverTimestamp(),
         });
-        toast.success(`${addForm.role} account created for ${addForm.name}! 🎉`);
+        if (isStudent) await linkTwins(addForm.phone, addForm.dob);
+        const isTwin    = isStudent && users.some(u => u.role === "student" && u.phone === addForm.phone && u.dob === addForm.dob);
+        const isSibling = isStudent && !isTwin && authEmail !== candidates[0];
+        toast.success(
+          isTwin    ? `Account created for ${addForm.name}! 👥 Twin: log in with phone + DOB, then tap "Switch" on the dashboard.` :
+          isSibling ? `Account created for ${addForm.name}! 👨‍👧 Shares a phone with a brother/sister — log in with phone + this child's DOB.` :
+                      `${addForm.role} account created for ${addForm.name}! 🎉`,
+          { duration: isTwin || isSibling ? 7000 : 4000 }
+        );
         closeAddModal();
         fetchUsers();
       } catch (firestoreErr) {
@@ -314,7 +357,7 @@ export default function ManageUsers() {
         await signOut(secondaryAuth);
       }
     } catch (e) {
-      if (e.code === "auth/email-already-in-use") toast.error("This phone number is already registered");
+      if (e.code === "auth/email-already-in-use") toast.error("This email is already registered");
       else toast.error("Failed to create user: " + e.message);
     }
     setCreating(false);
@@ -388,6 +431,8 @@ export default function ManageUsers() {
       // Deletes both the login and the profile (Cloud Function, admin-only)
       await httpsCallable(functions, "deleteUserAccount")({ uid: userId });
       toast.success("User removed");
+      const removed = users.find(u => u.id === userId);
+      if (removed?.role === "student") linkTwins(removed.phone, removed.dob).catch(() => {});
       fetchUsers();
     } catch (e) {
       // Function not deployed yet → fall back to removing the profile only

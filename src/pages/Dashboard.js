@@ -6,7 +6,8 @@ import {
   addDoc, serverTimestamp,
   getCountFromServer, orderBy, limit,
 } from "firebase/firestore";
-import { db } from "../firebase/config";
+import { db, auth } from "../firebase/config";
+import { signInWithEmailAndPassword } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
@@ -242,6 +243,11 @@ export default function Dashboard() {
             Wishing you an amazing day full of joy and learning! 🌟 From VaanavilVidyalaya 🦉
           </div>
         </div>
+      )}
+
+      {/* ── 👥 Twins share one phone + DOB login: switch between them ── */}
+      {role === "student" && userProfile?.twins?.length > 0 && (
+        <TwinSwitcher profile={userProfile} />
       )}
 
       {/* ── Profile + Greeting Card ───────────────────────── */}
@@ -626,6 +632,43 @@ export default function Dashboard() {
 }
 
 /* ── Sub-components ───────────────────────────────────── */
+function TwinSwitcher({ profile }) {
+  const [busy, setBusy] = useState(false);
+  const first = profile.name?.split(" ")[0] || "you";
+
+  async function switchTo(twin) {
+    setBusy(true);
+    try {
+      // Twins have the same date of birth, which is also the password
+      await signInWithEmailAndPassword(auth, twin.email, profile.dob);
+      toast.success(`Switched to ${twin.name.split(" ")[0]} 👋`);
+    } catch {
+      toast.error("Couldn't switch — please log out and log in again");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+      background: "#fef3c7", border: "2px solid #fcd34d", borderRadius: 18,
+      padding: "10px 14px", marginBottom: 12,
+    }}>
+      <span style={{ fontSize: 22 }}>👥</span>
+      <span style={{ flex: "1 1 160px", fontSize: 14, color: "#92400e", fontWeight: 600 }}>
+        Logged in as <strong>{first}</strong>. Not {first}?
+      </span>
+      {profile.twins.map(t => (
+        <button key={t.email} className="btn btn-primary" disabled={busy}
+          onClick={() => switchTo(t)}
+          style={{ fontSize: 14, padding: "8px 16px" }}>
+          Switch to {t.name.split(" ")[0]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function StatCard({ emoji, bg, color, label, value, onClick }) {
   return (
     <div className="stat-card" onClick={onClick}
