@@ -1637,3 +1637,62 @@ button, .btn { font-family: 'Baloo 2', 'Nunito', sans-serif; }
 }
 .profile-problem-card h2 { font-size: 22px; color: #312e81; margin: 8px 0; }
 .profile-problem-card p  { color: #6b7280; font-size: 15px; margin: 0 0 20px; line-height: 1.5; }
+
+/* ════════════════════════════════════════════════════════════
+   TEACHER REVIEW of submissions (result, stars, remark, send back)
+════════════════════════════════════════════════════════════ */
+.review-box {
+  margin-top: 8px; padding: 8px 12px; border-radius: 12px;
+  border: 1.5px solid #e5e7eb; background: #f9fafb; font-size: 13px;
+}
+.review-waiting { color: #6b7280; font-weight: 600; }
+.review-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.review-stars { font-size: 15px; letter-spacing: 1px; }
+.review-sendback {
+  background: #fee2e2; color: #b91c1c; font-weight: 800; font-size: 12px;
+  padding: 2px 10px; border-radius: 50px;
+}
+.review-remark { margin-top: 4px; color: #374151; font-size: 14px; line-height: 1.4; }
+.review-by { margin-top: 2px; color: #9ca3af; font-size: 12px; }
+.review-again { margin-top: 6px; color: #4f46e5; font-weight: 700; font-size: 12px; }
+.review-btn {
+  margin-top: 8px; border: none; border-radius: 10px; padding: 8px 14px; cursor: pointer;
+  background: #eef2ff; color: #4338ca; font-weight: 800; font-size: 13px; font-family: inherit;
+  min-height: 36px;
+}
+.review-close {
+  background: #f3f4f6; border: none; border-radius: 10px; padding: 7px; cursor: pointer;
+  display: flex; align-items: center; color: #374151;
+}
+.review-note { margin: 0 0 10px; font-size: 14px; color: #4b5563; background: #f8f9ff; border-radius: 10px; padding: 8px 12px; }
+.review-label { font-size: 13px; font-weight: 800; color: #4b5563; margin: 14px 0 8px; }
+.review-options { display: flex; flex-direction: column; gap: 8px; }
+.review-option {
+  text-align: left; border: 2px solid #e5e7eb; background: white; border-radius: 12px;
+  padding: 12px 14px; font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit; color: #374151;
+}
+.review-star-row { display: flex; align-items: center; gap: 6px; }
+.review-star {
+  font-size: 30px; background: none; border: none; cursor: pointer; padding: 2px 4px;
+  filter: grayscale(1); opacity: 0.35; transition: transform 0.12s;
+}
+.review-star.on { filter: none; opacity: 1; transform: scale(1.1); }
+.review-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.review-chip {
+  border: 1.5px solid #e0e7ff; background: #f8f9ff; color: #4338ca; border-radius: 50px;
+  padding: 6px 12px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit;
+}
+.review-text {
+  width: 100%; box-sizing: border-box; border: 2px solid #e0e7ff; border-radius: 12px;
+  padding: 10px 12px; font-family: inherit; font-size: 15px; resize: vertical;
+}
+.review-sendback-toggle {
+  display: flex; gap: 12px; align-items: flex-start; margin-top: 14px; cursor: pointer;
+  background: #fff7ed; border: 2px solid #fed7aa; border-radius: 12px; padding: 12px 14px;
+  font-size: 14px; color: #7c2d12;
+}
+.review-sendback-toggle input { width: 20px; height: 20px; margin-top: 2px; accent-color: #ea580c; }
+.redo-banner {
+  margin-top: 10px; padding: 10px 12px; border-radius: 12px;
+  background: #fef2f2; border: 2px solid #fecaca; color: #991b1b; font-size: 14px; line-height: 1.4;
+}

@@ -11,6 +11,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { useTeacherClass } from "../hooks/useTeacherClass";
 import ClassPicker from "../components/ClassPicker";
 import { canSeeHomework, homeworkProgress, isOverdue as isPastDue, localYMD } from "../utils/homework";
+import { isSentBack, totalStars } from "../utils/review";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
@@ -204,12 +205,14 @@ export default function Dashboard() {
 
         const subQ    = query(collection(db, "submissions"), where("studentId", "==", userProfile.uid || ""));
         const subSnap = await getDocs(subQ);
-        const submittedIds = new Set(subSnap.docs.map(d => d.data().homeworkId));
+        const mySubs  = subSnap.docs.map(d => d.data());
+        // Work the teacher sent back is pending again
+        const submittedIds = new Set(mySubs.filter(s => !isSentBack(s)).map(s => s.homeworkId));
 
         // count only submissions that belong to THIS class's homework (fixes the mismatch bug)
         const submitted = hw.filter(h => submittedIds.has(h.id)).length;
         const pending   = hw.filter(h => !submittedIds.has(h.id));
-        setStats({ total: hw.length, submitted, pending: pending.length });
+        setStats({ total: hw.length, submitted, pending: pending.length, stars: totalStars(mySubs) });
         setRecentHomework(hw.slice(0, 5).map(h => ({ ...h, submitted: submittedIds.has(h.id) })));
       }
     } catch (e) { console.error(e); toast.error("Failed to load dashboard data"); }
@@ -577,6 +580,7 @@ export default function Dashboard() {
           <StatCard emoji="📚" bg="#e0e7ff" color="#4338ca" label="Total"     value={stats.total    || 0} />
           <StatCard emoji="✅" bg="#d1fae5" color="#059669" label="Submitted" value={stats.submitted || 0} />
           <StatCard emoji="⏳" bg="#fef3c7" color="#b45309" label="Pending"   value={stats.pending  || 0} />
+          <StatCard emoji="⭐" bg="#fef9c3" color="#a16207" label="Stars earned" value={stats.stars || 0} onClick={() => navigate("/my-homework")} />
         </>)}
       </div>
 

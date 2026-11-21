@@ -6,6 +6,9 @@ import { CheckCircle, Clock, X } from "lucide-react";
 import toast from "react-hot-toast";
 import SubmissionFiles, { submissionFiles } from "../components/SubmissionFiles";
 import { canSeeHomework } from "../utils/homework";
+import ReviewModal from "../components/ReviewModal";
+import ReviewBadge from "../components/ReviewBadge";
+import { isSentBack, totalStars } from "../utils/review";
 
 export default function Submissions() {
   const { userProfile } = useAuth();
@@ -16,6 +19,7 @@ export default function Submissions() {
   const [activeTab,    setActiveTab]    = useState("submitted"); // "submitted" | "not_submitted"
   const [loading,      setLoading]      = useState(true);
   const [profileStudent, setProfileStudent] = useState(null); // student object for modal
+  const [reviewSub, setReviewSub] = useState(null);           // submission being reviewed
 
   const isCommonTeacher = userProfile?.classId === "ALL";
   const [selectedClassId, setSelectedClassId] = useState("");
@@ -108,7 +112,8 @@ export default function Submissions() {
     ? submissions
     : submissions.filter((s) => s.homeworkId === selectedHwId);
 
-  const submittedIds      = new Set(filteredSubs.map((s) => s.studentId));
+  // Work the teacher sent back counts as not done until the student submits again
+  const submittedIds      = new Set(filteredSubs.filter((s) => !isSentBack(s)).map((s) => s.studentId));
   const selectedHw        = homework.find((h) => h.id === selectedHwId);
   // Students expected to do the selected homework (in the class when it was posted)
   const expected          = selectedHw ? students.filter((s) => canSeeHomework(s, selectedHw)) : students;
@@ -284,6 +289,11 @@ export default function Submissions() {
                           ) : (
                             <span style={{ fontSize: 13, color: "#6b7280" }}>{sub.note || "File only"}</span>
                           )}
+                          {sub.resubmittedAt && !sub.review && <div className="review-again">🔁 Submitted again</div>}
+                          <ReviewBadge review={sub.review} compact teacherView />
+                          <button type="button" className="review-btn" onClick={() => setReviewSub(sub)}>
+                            {sub.review ? "✏️ Edit review" : "✍️ Review"}
+                          </button>
                         </td>
                         <td style={styles.td}>
                           <span style={{ fontSize: 12, color: "#6b7280" }}>
@@ -444,6 +454,11 @@ export default function Submissions() {
                         ) : (
                           <span style={{ fontSize: 13, color: "#6b7280" }}>{sub.note || "File only"}</span>
                         )}
+                          {sub.resubmittedAt && !sub.review && <div className="review-again">🔁 Submitted again</div>}
+                          <ReviewBadge review={sub.review} compact teacherView />
+                          <button type="button" className="review-btn" onClick={() => setReviewSub(sub)}>
+                            {sub.review ? "✏️ Edit review" : "✍️ Review"}
+                          </button>
                       </td>
                       <td style={styles.td}>
                         <span style={{ fontSize: 12, color: "#6b7280" }}>
@@ -470,6 +485,14 @@ export default function Submissions() {
       )}
 
       {/* ── Student profile modal ── */}
+      {reviewSub && (
+        <ReviewModal
+          sub={reviewSub}
+          onClose={() => setReviewSub(null)}
+          onSaved={(updated) => setSubmissions((list) => list.map((x) => (x.id === updated.id ? updated : x)))}
+        />
+      )}
+
       {profileStudent && (
         <StudentProfileModal
           student={profileStudent}
@@ -485,7 +508,8 @@ export default function Submissions() {
 /* ── Student Profile Modal ───────────────────────────────── */
 function StudentProfileModal({ student, homework, submissions, onClose }) {
   const stuSubs = submissions.filter((s) => s.studentId === student.id);
-  const submittedHwIds = new Set(stuSubs.map((s) => s.homeworkId));
+  const submittedHwIds = new Set(stuSubs.filter((s) => !isSentBack(s)).map((s) => s.homeworkId));
+  const stars = totalStars(stuSubs);
   const theirHomework = homework.filter((h) => canSeeHomework(student, h) || submittedHwIds.has(h.id));
   const completed = theirHomework.filter((h) => submittedHwIds.has(h.id));
   const pending   = theirHomework.filter((h) => !submittedHwIds.has(h.id));
@@ -568,7 +592,7 @@ function StudentProfileModal({ student, homework, submissions, onClose }) {
           <div style={{ display: "flex", gap: 16 }}>
             <span style={{ color: "#6ee7b7", fontSize: 12, fontWeight: 700 }}>✅ {completed.length} done</span>
             <span style={{ color: "#fca5a5", fontSize: 12, fontWeight: 700 }}>❌ {pending.length} pending</span>
-            <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}>of {theirHomework.length} total</span>
+            <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}>of {theirHomework.length} total{stars > 0 ? ` · ⭐ ${stars} stars` : ""}</span>
           </div>
         </div>
 

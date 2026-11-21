@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, query, where, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, where, getDocs, addDoc, updateDoc, doc, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "../firebase/config";
 import { useAuth } from "../context/AuthContext";
@@ -8,6 +8,8 @@ import toast from "react-hot-toast";
 import { downloadFile } from "../utils/downloadFile";
 import SubmissionFiles, { submissionFiles } from "../components/SubmissionFiles";
 import { canSeeHomework, daysUntilDue, isOverdue } from "../utils/homework";
+import ReviewBadge from "../components/ReviewBadge";
+import { isDone, isSentBack, latestByHomework } from "../utils/review";
 
 // A worksheet can have several pages — one photo (or PDF) per page
 const MAX_PAGES = 5;
@@ -83,9 +85,7 @@ export default function MyHomework() {
 
       const subQ = query(collection(db, "submissions"), where("studentId", "==", currentUser.uid));
       const subSnap = await getDocs(subQ);
-      const subMap = {};
-      subSnap.docs.forEach(d => { subMap[d.data().homeworkId] = { id: d.id, ...d.data() }; });
-      setSubmissions(subMap);
+      setSubmissions(latestByHomework(subSnap.docs.map(d => ({ id: d.id, ...d.data() }))));
     } catch { toast.error("Failed to load homework"); }
     setLoading(false);
   }
@@ -151,13 +151,7 @@ export default function MyHomework() {
         files.push({ url: await getDownloadURL(fileRef), name: file.name, type: file.type || "" });
       }
       setUploadMsg("Saving… ✨");
-      await addDoc(collection(db, "submissions"), {
-        homeworkId: selectedHw.id,
-        homeworkTitle: selectedHw.title,
-        homeworkType: selectedHw.type || "homework",
-        classId: userProfile.classId,
-        studentId: currentUser.uid,
-        studentName: userProfile.name,
+      const work = {
         note: subForm.note,
         files,
         // First page — older versions of the app only read these two
@@ -165,7 +159,27 @@ export default function MyHomework() {
         fileName: files[0]?.name || null,
         bringPhysically: subForm.bringPhysically,
         submittedAt: serverTimestamp(),
-      });
+      };
+      const previous = submissions[selectedHw.id];
+      if (isSentBack(previous)) {
+        // Teacher sent it back → replace the old work; the teacher reviews it again
+        await updateDoc(doc(db, "submissions", previous.id), {
+          ...work,
+          review: null,
+          previousReview: previous.review,
+          resubmittedAt: serverTimestamp(),
+        });
+      } else {
+        await addDoc(collection(db, "submissions"), {
+          homeworkId: selectedHw.id,
+          homeworkTitle: selectedHw.title,
+          homeworkType: selectedHw.type || "homework",
+          classId: userProfile.classId,
+          studentId: currentUser.uid,
+          studentName: userProfile.name,
+          ...work,
+        });
+      }
 
       const msg = selectedHw.type === "game"
         ? "🎮 Game marked complete!"
@@ -193,13 +207,14 @@ export default function MyHomework() {
 
   const games      = visibleList.filter(hw => hw.type === "game");
   const regularHw  = visibleList.filter(hw => hw.type !== "game");
-  const pendingGames  = games.filter(hw => !submissions[hw.id]);
-  const doneGames     = games.filter(hw =>  submissions[hw.id]);
-  const pendingHw     = regularHw.filter(hw => !submissions[hw.id]);
-  const doneHw        = regularHw.filter(hw =>  submissions[hw.id]);
+  // Work the teacher sent back is pending again
+  const pendingGames  = games.filter(hw => !isDone(submissions[hw.id]));
+  const doneGames     = games.filter(hw =>  isDone(submissions[hw.id]));
+  const pendingHw     = regularHw.filter(hw => !isDone(submissions[hw.id]));
+  const doneHw        = regularHw.filter(hw =>  isDone(submissions[hw.id]));
 
   const validHwIds = new Set(homeworkList.map(h => h.id));
-  const totalDone  = Object.keys(submissions).filter(id => validHwIds.has(id)).length;
+  const totalDone  = Object.keys(submissions).filter(id => validHwIds.has(id) && isDone(submissions[id])).length;
   const totalAll   = homeworkList.length;
 
   return (
@@ -270,7 +285,7 @@ export default function MyHomework() {
                 🔥 Play & Complete
               </div>
               {pendingGames.map(hw => (
-                <GameCard key={hw.id} hw={hw} status="pending" onMarkDone={() => openSubmit(hw)} />
+                <GameCard key={hw.id} hw={hw} status="pending" onMarkDone={() => openSubmit(hw)} submission={submissions[hw.id]} />
               ))}
             </>
           )}
@@ -300,7 +315,7 @@ export default function MyHomework() {
             🔥 Active Missions ({pendingHw.length})
           </h2>
           {pendingHw.map(hw => (
-            <HomeworkCard key={hw.id} hw={hw} status="pending" onSubmit={() => openSubmit(hw)} />
+            <HomeworkCard key={hw.id} hw={hw} status="pending" onSubmit={() => openSubmit(hw)} submission={submissions[hw.id]} />
           ))}
         </div>
       )}
@@ -549,6 +564,10 @@ function GameCard({ hw, status, onMarkDone, submission }) {
           )}
           {isDone && <span style={{ background: "#d1fae5", color: "#059669", fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 50 }}>✅ Done!</span>}
         </div>
+        {!isDone && isSentBack(submission) && (
+          <div className="redo-banner">🔁 <b>{submission.review.byName || "Your teacher"}</b> asked you to do it again{submission.review.remark ? `: “${submission.review.remark}”` : "."}</div>
+        )}
+        {isDone && submission?.review && <ReviewBadge review={submission.review} />}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0, alignItems: "flex-end" }}>
@@ -630,7 +649,7 @@ function HomeworkCard({ hw, status, onSubmit, submission }) {
                   background: `linear-gradient(135deg, ${sub.color}, ${sub.color}cc)`,
                   boxShadow: `0 4px 0 ${sub.color}55`,
                 }}>
-                🚀 Accept Mission!
+                {isSentBack(submission) ? "🔁 Submit Again" : "🚀 Accept Mission!"}
               </button>
             )}
             {!isPending && (
@@ -661,6 +680,15 @@ function HomeworkCard({ hw, status, onSubmit, submission }) {
               >📎 Download</button>
             )}
           </div>
+
+          {isPending && isSentBack(submission) && (
+            <div className="redo-banner">
+              🔁 <b>{submission.review.byName || "Your teacher"}</b> asked you to do it again
+              {submission.review.remark ? <>: “{submission.review.remark}”</> : "."}
+            </div>
+          )}
+
+          {!isPending && submission && <ReviewBadge review={submission.review} />}
 
           {submission && (
             <div style={{

@@ -329,6 +329,50 @@ exports.onClassAnnouncementCreated = onDocumentCreated("classAnnouncements/{id}"
    CLEAN-UP — when a record is deleted, delete its uploaded files
    (and, for homework / students, the records that belong to them)
 ═══════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════
+   TRIGGER 8 — Teacher reviews a submission → student notified;
+   student submits again after a send-back → teacher(s) notified.
+   Pages replaced by a resubmission are deleted from storage.
+═══════════════════════════════════════════════════════════ */
+exports.onSubmissionUpdated = onDocumentUpdated("submissions/{id}", async (event) => {
+  const before = event.data.before.data();
+  const after  = event.data.after.data();
+
+  // Old pages no longer used after a resubmission
+  const urls = s => [...(s.files || []).map(f => f.url), s.fileUrl].filter(Boolean);
+  const kept = new Set(urls(after));
+  const gone = urls(before).filter(u => !kept.has(u));
+  if (gone.length) await deleteFiles(gone);
+
+  const r = after.review;
+  const reviewChanged = r && (!before.review
+    || before.review.status !== r.status || before.review.stars !== r.stars
+    || before.review.remark !== r.remark || before.review.sendBack !== r.sendBack);
+
+  if (reviewChanged) {
+    const stars = Number(r.stars) > 0 ? " " + "⭐".repeat(Number(r.stars)) : "";
+    const title = r.sendBack
+      ? `🔁 Please do it again — ${after.homeworkTitle}`
+      : r.status === "checked"
+        ? `✅ Homework checked${stars}`
+        : `⚠️ ${after.homeworkTitle}: ${r.status === "not_brought" ? "not brought to class" : "not properly completed"}`;
+    const body = r.remark
+      ? `${r.byName || "Teacher"}: ${shorten(r.remark, 100)}`
+      : `${r.byName || "Your teacher"} reviewed “${after.homeworkTitle}”. Tap to see.`;
+    await sendToTokens(await getTokenByUid(after.studentId), title, body);
+    return;
+  }
+
+  // Resubmitted after a send-back (review cleared by the student)
+  if (before.review?.sendBack && !after.review) {
+    await sendToTokens(
+      await getTeacherTokens(after.classId),
+      `🔁 Submitted again — ${after.studentName}`,
+      `${after.studentName} (Class ${after.classId}) redid “${after.homeworkTitle}”. Tap to review.`
+    );
+  }
+});
+
 exports.onSubmissionDeleted = onDocumentDeleted("submissions/{id}", async (event) => {
   const s = event.data?.data();
   if (!s) return;

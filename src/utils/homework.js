@@ -49,7 +49,7 @@ export function canSeeHomework(student, hw) {
 export function homeworkProgress(homeworkList, students, submissions) {
   const submittedBy = {};
   for (const s of submissions) {
-    if (!s.homeworkId) continue;
+    if (!s.homeworkId || s.review?.sendBack) continue;   // sent back = not done yet
     (submittedBy[s.homeworkId] = submittedBy[s.homeworkId] || new Set()).add(s.studentId);
   }
   const submitted = {}, total = {}, pendingStudents = {};

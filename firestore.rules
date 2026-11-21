@@ -67,10 +67,18 @@ service cloud.firestore {
                   || isSelf(resource.data.studentId);
       allow create: if isStudent()
                     && request.resource.data.studentId == request.auth.uid
-                    && request.resource.data.classId == me().classId;
-      allow update: if staffFor(resource.data.classId)
-                    && request.resource.data.studentId == resource.data.studentId
-                    && request.resource.data.classId == resource.data.classId;
+                    && request.resource.data.classId == me().classId
+                    && !request.resource.data.keys().hasAny(['review']);   // only teachers review
+      // Teachers review (result, stars, remark, send back).
+      // A student may replace their work only after the teacher sent it back.
+      allow update: if (staffFor(resource.data.classId)
+                        && request.resource.data.studentId == resource.data.studentId
+                        && request.resource.data.classId == resource.data.classId)
+                    || (isSelf(resource.data.studentId)
+                        && resource.data.review.sendBack == true
+                        && request.resource.data.review == null
+                        && onlyChanges(['files', 'fileUrl', 'fileName', 'note', 'bringPhysically',
+                                        'submittedAt', 'review', 'previousReview', 'resubmittedAt']));
       allow delete: if staffFor(resource.data.classId);
     }
 
